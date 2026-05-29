@@ -1,0 +1,12 @@
+# Frontend exclusions
+frontend/node_modules/
+frontend/.next/
+frontend/.env.local
+
+# Backend exclusions
+backend/__pycache__/
+backend/venv/
+backend/.env
+
+# OS specific files
+.DS_Store
