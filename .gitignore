@@ -12,3 +12,4 @@ backend/logs/
 
 # OS specific files
 .DS_Store
+backend/logs/app.log

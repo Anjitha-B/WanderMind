@@ -36,7 +36,7 @@ export default function Profile() {
       dateOfBirth: 'date_of_birth',
       homeCountry: 'home_country',
       preferredCurrency: 'preferred_currency',
-      preferences: 'preferrences',
+      preferences: 'preferences',
     },
   };
 
@@ -78,7 +78,7 @@ export default function Profile() {
           'firstname' in data ||
           'lastname' in data ||
           'preferred_currency' in data ||
-          'preferrences' in data;
+          'preferences' in data;
 
         const resolvedColumnProfile = hasDefaultColumns ? 'default' : hasLegacyColumns ? 'legacy' : 'default';
         setColumnProfile(resolvedColumnProfile);
@@ -90,7 +90,7 @@ export default function Profile() {
         setDateOfBirth(data.date_of_birth ?? '');
         setHomeCountry(data.home_country ?? '');
         setPreferredCurrency(data.preferred_currency ?? data.preferred_currency ?? 'USD');
-        setPreferences(data.preferences ?? data.preferrences ?? '');
+        setPreferences(data.preferences ?? data.preferences ?? '');
       }
       setLoading(false);
     };
@@ -176,7 +176,7 @@ export default function Profile() {
       'date_of_birth',
       'home_country',
       'preferred_currency',
-      'preferrences',
+      'preferences',
     ];
     const allowedColumns = new Set([
       ...defaultColumnSet,
