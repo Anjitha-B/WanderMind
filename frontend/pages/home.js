@@ -33,11 +33,11 @@ export default function Home() {
 	const generateItinerary = async () => {
         setLoading(true);
         try {
-            // 1. Format the dates from your calendar state into standard YYYY-MM-DD strings
+            // 1. Format the selected date range into a backend-friendly string format (e.g., "YYYY-MM-DD")
             const formattedStartDate = format(dateRange[0].startDate, 'yyyy-MM-dd');
             const formattedEndDate = format(dateRange[0].endDate, 'yyyy-MM-dd');
         
-            // 2. Parse interests string into an array if you haven't already
+            // 2. Clean the interests string into an array by splitting on commas and trimming whitespace
             const interestsArray = interests.split(',').map(i => i.trim()).filter(Boolean);
 
             const response = await fetch("http://localhost:8000/generate-itinerary", {
@@ -45,7 +45,7 @@ export default function Home() {
                 headers: {
                     "Content-Type": "application/json",
                 },
-                // 3. Swap 'days' out, and inject your brand new date variables!
+               
                 body: JSON.stringify({
                     destination: destination,
                     start_date: formattedStartDate,
@@ -231,7 +231,7 @@ export default function Home() {
                                     onChange={item => setDateRange([item.selection])}
                                     moveRangeOnFirstSelection={false}
                                     ranges={dateRange}
-                                    rangeColors={['#652C15']} // Custom brown matching your header typography color palette!
+                                    rangeColors={['#652C15']} 
                                     minDate={new Date()}     // Prevents selecting vacation days in the past
                                 />
                             <div className="flex justify-end p-2 border-t border-gray-100 bg-gray-50 rounded-b-xl">

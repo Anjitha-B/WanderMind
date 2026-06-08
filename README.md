@@ -1,10 +1,47 @@
-# WanderMind — Agentic AI Travel Itinerary Planner
+# WanderMind — AI-Powered Travel Itinerary Planner
 
-WanderMind is a decoupled web application that generates personalized travel itineraries. The architecture isolates a frontend server (Next.js) from a backend processing service (FastAPI) to maintain high concurrency, secure API token handling, and a clear separation of development boundaries.
+WanderMind turns an unstructured travel request into a structured, 
+personalized itinerary — powered by Gemini 2.5 Flash and a decoupled 
+FastAPI + Next.js architecture.
+
+A user describes where they want to go, their preferences, and travel 
+dates. WanderMind returns a day-by-day itinerary with activities, 
+logistics, and recommendations — stored to their account for future access.
 
 ---
 
-## Technical Architecture & Tech Stack
+## Why I built this
+
+I wanted a project that demonstrates the full stack of a customer-facing 
+AI solution: API design, LLM integration, structured output handling, 
+auth, and a production-ready frontend — built and shipped end-to-end.
+
+This is the kind of solution I'd architect and demo in a 
+Solutions Engineering or Implementation Engineering context.
+
+--- 
+
+## Architecture Highlights
+
+**Decoupled frontend/backend** — Next.js (port 3000) and FastAPI (port 8000) 
+run as separate servers with CORS-controlled communication. 
+This isolates API token handling from the client layer and allows 
+independent scaling of each service.
+
+**Structured LLM output** — Gemini responses are validated against a 
+strict Pydantic JSON schema before being stored. No raw LLM strings 
+reach the database.
+
+**Row Level Security** — Every Supabase table query is scoped to the 
+authenticated user via PostgreSQL RLS policies. 
+Users can only read and write their own itinerary data.
+
+**JSONB storage for multi-day itineraries** — Multi-day arrays returned 
+by the LLM are stored in a single JSONB column, 
+avoiding complex relational joins for hierarchical travel data.
+
+
+## Tech Stack
 
 WanderMind splits software responsibilities cleanly between two runtime environments:
 
@@ -29,63 +66,54 @@ WanderMind splits software responsibilities cleanly between two runtime environm
 
 ---
 
-## Completed Technical Milestones (What We Have Built Till Now)
+## Local Setup
 
-1. **Next.js & Tailwind CSS v4 Pipeline Integration:** Fixed PostCSS compilation bugs to mount custom stylesheets (`globals.css`) onto a root app shell (`_app.js`), allowing a full-viewport off-white layout framework (`bg-slate-50`).
-2. **Decoupled Server Integration (CORS):** Wired up Cross-Origin Resource Sharing rules inside FastAPI to permit Next.js user requests (`localhost:3000`) to safely pass data packets to the Python endpoint (`localhost:8000`).
-3. **Structured Gemini Text Parser Core:** Coded internal string slicing arrays utilizing `json.loads` within Python endpoints to strip out markdown code fences and pull clean JSON blocks from Gemini.
-4. **Cloud-Hosted Security Authentication Gate:** Implemented a secure authentication page layout (`/login`) utilizing `@supabase/auth-ui-react` drop-in cards.
-5. **Client-Side Auth Guards:** Connected automated `useEffect` checks across the primary home generation screen to detect unauthenticated traffic and force browser redirection to the login portal.
-6. **Automated User Database Seeding:** Created a relational public `profiles` table in Postgres linked dynamically via a cascading foreign key relationship (`CASCADE`) pointing to system logins.
-7. **Compiled Autonomous PostgreSQL Triggers:** Deployed database automation algorithms inside the Supabase SQL editor:
-    * `on_auth_user_created`: Instantly initializes a blank profile row placeholder containing a user's unique `id` when they execute a fresh sign-up.
-    * `on_profile_modified`: Intercepts client changes to store the exact execution time stamp smoothly into the `modified_at` cell.
-8. **Client Validation Guard Constraint:** Layered frontend validation rules within `profile.js` to assert format requirements on inputs (`firstname`, `lastname`, `date_of_birth`, `home_country`, `preferred_currency`, `preferrences`) before executing an `.upsert()` write transaction.
+### Prerequisites
+- Node.js 18+
+- Python 3.10+
+- A free [Supabase](https://supabase.com) project
+- A [Google AI Studio](https://aistudio.google.com) API key
+
+### Backend
+```bash
+cd backend
+pip install -r requirements.txt
+uvicorn main:app --reload
+```
+
+### Frontend
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+### Environment Variables
+
+Create `.env.local` in the frontend root and `.env` in the backend root:
+
+**Frontend** (.env.local)
+NEXT_PUBLIC_SUPABASE_URL=your_supabase_url
+NEXT_PUBLIC_SUPABASE_ANON_KEY=your_anon_key
+
+**Backend** (.env)
+GEMINI_API_KEY=your_gemini_api_key
+SUPABASE_URL=your_supabase_url
+SUPABASE_SERVICE_KEY=your_service_key
+
+Full Supabase schema setup instructions → [SETUP.md](./SETUP.md)
 
 ---
 
-## Local Development Environment Setup
+## Project Status
 
-Execute these deployment steps sequentially to run your local dual-server environment:
+Core features complete. Auth, itinerary generation, and persistence 
+are fully functional. Actively maintained.
 
-### Step 1: Database Setup & Policy Configuration (Supabase Console)
-1. Initialize a free project space inside your Supabase dashboard workspace.
-2. In the **Table Editor**, build a table named exactly `profiles` and check **Enable Row Level Security (RLS)**.
-3. Configure your column parameters as follows:
-    * `id` (`uuid`, Primary Key) $\rightarrow$ Click the chain-link icon, change the schema to `auth`, relate to table `users`, column `id`, and ensure **Action on Delete** is set to `CASCADE`.
-    * `firstname` (`text`, Nullable)
-    * `lastname` (`text`, Nullable)
-    * `date_of_birth` (`date`, Nullable)
-    * `home_country` (`text`, Nullable)
-    * `preferred_currency` (`text`, Default: `'USD'`)
-    * `preferrences` (`text`, Nullable)
-    * `created_at` (`timestamptz`, Default: `now()`)
-    * `modified_at` (`timestamptz`, Nullable)
-4. Open the **SQL Editor**, open a **New Query**, paste, and run this automated automation routine:
-   ```sql
-   -- Sign-Up Profile Sync Trigger
-   create or replace function public.handle_new_user()
-   returns trigger as $$
-   begin
-     insert into public.profiles (id)
-     values (new.id);
-     return new;
-   end;
-   $$ language plpgsql security definer;
+---
 
-   create or replace trigger on_auth_user_created
-     after insert on auth.users
-     for each row execute procedure public.handle_new_user();
+## Author
 
-   -- Auto Timestamp Modification Trigger
-   create or replace function public.handle_profile_modification()
-   returns trigger as $$
-   begin
-     new.modified_at = now();
-     return new;
-   end;
-   $$ language plpgsql security definer;
-
-   create or replace trigger on_profile_modified
-     before update on public.profiles
-     for each row execute procedure public.handle_profile_modification();
+**Anjitha Balachandran**  
+[LinkedIn](https://www.linkedin.com/in/anjitha-balachandran-673b62146/) · 
+[Email](mailto:2011anjitha@gmail.com)
