@@ -1,4 +1,4 @@
-# WanderMind — AI-Powered Travel Itinerary Planner
+# WanderMind - AI-Powered Travel Itinerary Planner
 
 WanderMind turns an unstructured travel request into a structured, 
 personalized itinerary — powered by Gemini 2.5 Flash and a decoupled 
@@ -23,12 +23,12 @@ Solutions Engineering or Implementation Engineering context.
 
 ## Architecture Highlights
 
-**Decoupled frontend/backend** — Next.js (port 3000) and FastAPI (port 8000) 
+**Decoupled frontend/backend** - Next.js (port 3000) and FastAPI (port 8000) 
 run as separate servers with CORS-controlled communication. 
 This isolates API token handling from the client layer and allows 
 independent scaling of each service.
 
-**Structured LLM output** — Gemini responses are validated against a 
+**Structured LLM output** - Gemini responses are validated against a 
 strict Pydantic JSON schema before being stored. No raw LLM strings 
 reach the database.
 
@@ -93,15 +93,15 @@ npm run dev
 Create `.env.local` in the frontend root and `.env` in the backend root:
 
 **Frontend** (.env.local)
-NEXT_PUBLIC_SUPABASE_URL=your_supabase_url
-NEXT_PUBLIC_SUPABASE_ANON_KEY=your_anon_key
+- NEXT_PUBLIC_SUPABASE_URL=your_supabase_url
+- NEXT_PUBLIC_SUPABASE_ANON_KEY=your_anon_key
 
 **Backend** (.env)
-GEMINI_API_KEY=your_gemini_api_key
-SUPABASE_URL=your_supabase_url
-SUPABASE_SERVICE_KEY=your_service_key
+- GEMINI_API_KEY=your_gemini_api_key
+- SUPABASE_URL=your_supabase_url
+- SUPABASE_SERVICE_KEY=your_service_key
 
-Full Supabase schema setup instructions → [SETUP.md](./SETUP.md)
+Full Supabase schema setup instructions → [SETUP.md](./seup.md)
 
 ---
 
