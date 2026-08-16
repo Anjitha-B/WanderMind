@@ -216,6 +216,32 @@ def get_user_trips(user_id: str):
         logger.exception(f"Failed to fetch historical trips for user {user_id}")
         raise HTTPException(status_code=500, detail=f"Database read error: {str(e)}")
 
+@app.delete("/delete-itinerary/{trip_id}/{user_id}")
+def delete_user_itinerary(trip_id: str, user_id: str):
+    logger.info(f"Delete requested for trip record {trip_id} by user: {user_id}")
+    
+    try:
+        # Execute deletion targeting the unique row id AND matching user_id for safety
+        response = supabase_client.table("itineraries") \
+            .delete() \
+            .eq("id", trip_id) \
+            .eq("user_id", user_id) \
+            .execute()
+            
+        # If the row didn't exist or nothing was deleted, alert the logger
+        if len(response.data) == 0:
+            logger.warning(f"No itinerary row found matching ID {trip_id} for user {user_id}")
+            raise HTTPException(status_code=404, detail="Itinerary not found or unauthorized.")
+            
+        logger.info(f"Itinerary {trip_id} successfully deleted from the database.")
+        return {"status": "success", "message": "Trip erased cleanly!"}
+        
+    except HTTPException as he:
+        raise he
+    except Exception as e:
+        logger.exception(f"Database deletion transaction failed for trip {trip_id}")
+        raise HTTPException(status_code=500, detail=f"Database delete error: {str(e)}")
+
 @app.get("/error-demo")
 def error_demo():
     try:
