@@ -2,7 +2,7 @@ import logging
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from typing import List
+from typing import List, Any
 import os
 from dotenv import load_dotenv
 from google import genai
@@ -76,6 +76,10 @@ class SaveItineraryRequest(BaseModel):
     end_date: str
     interests: List[str]
     itinerary_data: List[dict]    
+
+class UpdateItineraryRequest(BaseModel):
+    user_id: str
+    itinerary_data: List[Any]
 
 
 @app.post("/generate-itinerary", response_model=ItineraryResponse)
@@ -241,6 +245,31 @@ def delete_user_itinerary(trip_id: str, user_id: str):
     except Exception as e:
         logger.exception(f"Database deletion transaction failed for trip {trip_id}")
         raise HTTPException(status_code=500, detail=f"Database delete error: {str(e)}")
+
+@app.put("/update-itinerary/{trip_id}")
+def update_user_itinerary(trip_id: str, payload: UpdateItineraryRequest):
+    logger.info(f"Update requested for trip record {trip_id} by user: {payload.user_id}")
+    
+    try:
+        # Update the itinerary_data column where trip ID AND user_id match
+        response = supabase_client.table("itineraries") \
+            .update({"itinerary_data": payload.itinerary_data}) \
+            .eq("id", trip_id) \
+            .eq("user_id", payload.user_id) \
+            .execute()
+            
+        if len(response.data) == 0:
+            logger.warning(f"No itinerary found matching ID {trip_id} for user {payload.user_id}")
+            raise HTTPException(status_code=404, detail="Itinerary not found or unauthorized.")
+            
+        logger.info(f"Itinerary {trip_id} successfully updated in database.")
+        return {"status": "success", "message": "Itinerary updated successfully!"}
+        
+    except HTTPException as he:
+        raise he
+    except Exception as e:
+        logger.exception(f"Database update transaction failed for trip {trip_id}")
+        raise HTTPException(status_code=500, detail=f"Database update error: {str(e)}")
 
 @app.get("/error-demo")
 def error_demo():
