@@ -9,6 +9,8 @@ from google import genai
 import json
 from datetime import datetime
 from supabase import create_client, Client
+from tavily import TavilyClient
+from google.genai import types
 
 
 # ensure logs directory exists before configuring logging
@@ -23,6 +25,7 @@ logger = logging.getLogger(__name__)
 
 load_dotenv()
 
+# Initialize Gemini API client
 api_key = os.getenv("GEMINI_API_KEY")
 if not api_key:
     logger.error("GEMINI_API_KEY is not set in environment")
@@ -44,6 +47,21 @@ except Exception:
     logger.exception("Failed to initialize Supabase client")
     # Surface an explicit runtime error to avoid starting the app in a bad state
     raise RuntimeError("Failed to initialize Supabase client. Check SUPABASE_URL and SUPABASE_KEY.")
+
+# Initialize Tavily
+tavily_client = TavilyClient(api_key=os.getenv("TAVILY_API_KEY"))
+
+def search_travel_info(query: str) -> str:
+    """
+    Searches the live web for real-time travel information, such as opening hours, 
+    local events, popular venues, or destination verifications.
+    """
+    try:
+        # Get concise AI-ready context from Tavily
+        context = tavily_client.get_search_context(query=query)
+        return context
+    except Exception as e:
+        return f"Error fetching search results: {str(e)}"
 
 app = FastAPI(title = "WanderMind API")
 
@@ -83,16 +101,13 @@ class UpdateItineraryRequest(BaseModel):
 
 
 @app.post("/generate-itinerary", response_model=ItineraryResponse)
-def generate_itinerary(request:ItineraryRequest):
+def generate_itinerary(request: ItineraryRequest):
     logger.info(f"Request received: destination={request.destination}, dates={request.start_date} to {request.end_date}")
     
-    # Calculate number of days from start_date and end_date
+    # 1. Parse dates and calculate travel window
     try:
-        # Parse standard incoming Next.js date strings (YYYY-MM-DD) safely
         start_dt = datetime.strptime(request.start_date, "%Y-%m-%d")
         end_dt = datetime.strptime(request.end_date, "%Y-%m-%d")
-        
-        # Calculate the direct numerical difference between calendar inputs
         total_days = (end_dt - start_dt).days + 1
         
         if total_days <= 0:
@@ -103,52 +118,55 @@ def generate_itinerary(request:ItineraryRequest):
         raise HTTPException(status_code=400, detail="Invalid date format. Must match YYYY-MM-DD.")
     
     prompt = f"""
-    Create a highly personalized {total_days}-day travel itinerary for {request.destination} 
-    explicitly tailored for a vacation starting on {request.start_date} and ending on {request.end_date}.
+    You are an expert travel planner. Create a highly personalized {total_days}-day travel itinerary 
+    for {request.destination} starting on {request.start_date} and ending on {request.end_date}.
     
     Interests: {", ".join(request.interests)}
-    
-    Respond ONLY in JSON using this format:
+
+    IMPORTANT: Use the search_travel_info tool to verify 2026 opening hours, real-world venue statuses, 
+    or active local events during these specific dates.
+
+    You MUST respond strictly with a single valid JSON object. Do not include markdown text or preambles outside the JSON.
+    Use this exact structure:
     {{
+         "destination": "{request.destination}",
          "itinerary": [
             {{
-                "day":1,
-                "activities":["activity 1", "activity 2"]
-            }} ]
+                "day": 1,
+                "activities": ["Activity 1 details", "Activity 2 details"]
+            }}
+         ]
     }}
     """
+    
     try:
-        response = client.models.generate_content(
-            model="gemini-2.5-flash-lite",
-            contents=prompt
+        # 2. Configure the Tavily search tool (The SDK executes the tool call automatically!)
+        config = types.GenerateContentConfig(
+            tools=[search_travel_info]
         )
 
-        # prefer a JSON-safe parsing path instead of eval()
-        ai_text = None
-        if hasattr(response, "text") and response.text:
-            ai_text = response.text
-        else:
-            # fallback to string or dict representation
-            try:
-                ai_text = response.to_dict()
-            except Exception:
-                ai_text = str(response)
+        # 3. Call Gemini model (Using gemini-2.5-flash for accurate tool execution)
+        response = client.models.generate_content(
+            model="gemini-3.6-flash",
+            contents=prompt,
+            config=config
+        )
 
-        try:
+        # 4. Extract generated text safely
+        ai_text = getattr(response, "text", None)
+        if not ai_text:
+            logger.error(f"Empty AI text response. Raw object: {response}")
+            raise HTTPException(status_code=502, detail="AI returned empty text response")
+
+        # Clean potential markdown wrappers like ```json ... ```
+        start = ai_text.find("{")
+        end = ai_text.rfind("}") + 1
+        
+        if start != -1 and end != -1 and end > start:
+            clean_json = ai_text[start:end]
+            payload = json.loads(clean_json)
+        else:
             payload = json.loads(ai_text)
-        except json.JSONDecodeError:
-            # try to extract JSON substring if model adds surrounding text
-            start = ai_text.find("{")
-            end = ai_text.rfind("}") + 1
-            if start != -1 and end != -1 and end > start:
-                try:
-                    payload = json.loads(ai_text[start:end])
-                except Exception:
-                    logger.exception("Failed to parse AI output as JSON")
-                    raise HTTPException(status_code=502, detail="Invalid AI response format")
-            else:
-                logger.exception("Failed to parse AI output as JSON")
-                raise HTTPException(status_code=502, detail="Invalid AI response format")
 
         itinerary_data = payload.get("itinerary")
         if not isinstance(itinerary_data, list):
@@ -164,9 +182,10 @@ def generate_itinerary(request:ItineraryRequest):
 
     except HTTPException:
         raise
-    except Exception:
-        logger.exception("Error generating itinerary")
-        raise HTTPException(status_code=500, detail="Internal server error")
+    except Exception as e:
+        logger.exception(f"Error generating itinerary: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+
 
 @app.post("/save-itinerary")
 def save_itinerary(request: SaveItineraryRequest):
@@ -271,10 +290,4 @@ def update_user_itinerary(trip_id: str, payload: UpdateItineraryRequest):
         logger.exception(f"Database update transaction failed for trip {trip_id}")
         raise HTTPException(status_code=500, detail=f"Database update error: {str(e)}")
 
-@app.get("/error-demo")
-def error_demo():
-    try:
-        1/0
-    except Exception as e:
-        logger.error("Something went wrong:", exc_info=True)
-        return{"error": "Internal server error"}
+
