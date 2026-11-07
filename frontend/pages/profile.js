@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react';
-import { useRouter } from 'next/router';
 import { supabase } from '../utils/supabase';
+import { useRequireAuth } from '../utils/useRequireAuth';
 import Link from 'next/link';
 
 export default function Profile() {
-  const router = useRouter();
+  const session = useRequireAuth();
+  const userId = session?.user.id;
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [user, setUser] = useState(null);
@@ -41,14 +42,10 @@ export default function Profile() {
   };
 
   useEffect(() => {
+    if (!userId) return;
+
     const fetchProfileData = async () => {
-      // 1. Grab active token user session details
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) {
-        router.push('/login');
-        return;
-      }
-      
+      // 1. Use the session confirmed by useRequireAuth
       const currentUser = session.user;
       setUser(currentUser);
 
@@ -96,7 +93,7 @@ export default function Profile() {
     };
 
     fetchProfileData();
-  }, [router]);
+  }, [userId]);
 
   const handleSaveProfile = async (e) => {
     e.preventDefault();

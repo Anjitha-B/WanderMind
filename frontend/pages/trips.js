@@ -1,9 +1,12 @@
 import { useEffect, useState } from 'react';
-import { supabase } from '../utils/supabase';
+import { apiFetch } from '../utils/api';
+import { useRequireAuth } from '../utils/useRequireAuth';
 import { format } from 'date-fns';
 import Link from 'next/link';
 
 export default function MyTrips() {
+    const session = useRequireAuth();
+    const userId = session?.user.id;
     const [trips, setTrips] = useState([]);
     const [loading, setLoading] = useState(true);
     const [selectedTrip, setSelectedTrip] = useState(null);
@@ -15,21 +18,12 @@ export default function MyTrips() {
     const [isSavingEdit, setIsSavingEdit] = useState(false);
 
     useEffect(() => {
-        fetchUserTrips();
-    }, []);
+        if (userId) fetchUserTrips();
+    }, [userId]);
 
     const fetchUserTrips = async () => {
         try {
-            const { data: { user }, error: userError } = await supabase.auth.getUser();
-            if (userError || !user) {
-                setLoading(false);
-                return;
-            }
-
-            const response = await fetch(`http://localhost:8000/get-trips/${user.id}`);
-            if (!response.ok) throw new Error("Failed to pull dashboard rows");
-
-            const data = await response.json();
+            const data = await apiFetch("/api/v1/trips");
             setTrips(data.trips);
         } catch (error) {
             console.error("Dashboard sync error:", error);
@@ -76,22 +70,10 @@ export default function MyTrips() {
     const saveItineraryEdit = async () => {
         setIsSavingEdit(true);
         try {
-            const { data: { user } } = await supabase.auth.getUser();
-            if (!user) return;
-
-            const response = await fetch(`http://localhost:8000/update-itinerary/${selectedTrip.id}`, {
-                method: "PUT",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                    user_id: user.id,
-                    itinerary_data: editedItineraryData
-                })
+            await apiFetch(`/api/v1/trips/${selectedTrip.id}`, {
+                method: "PATCH",
+                body: JSON.stringify({ itinerary_data: editedItineraryData })
             });
-
-            if (!response.ok) {
-                const errorData = await response.json();
-                throw new Error(errorData.detail || "Server rejected update");
-            }
 
             alert("✅ Itinerary updated successfully!");
 
@@ -117,17 +99,7 @@ export default function MyTrips() {
         setIsDeleting(true);
 
         try {
-            const { data: { user } } = await supabase.auth.getUser();
-            if (!user) return;
-
-            const response = await fetch(`http://localhost:8000/delete-itinerary/${tripId}/${user.id}`, {
-                method: "DELETE"
-            });
-
-            if (!response.ok) {
-                const errorData = await response.json();
-                throw new Error(errorData.detail || "Server rejected deletion");
-            }
+            await apiFetch(`/api/v1/trips/${tripId}`, { method: "DELETE" });
 
             alert("🗑️ Itinerary removed successfully.");
             setSelectedTrip(null);

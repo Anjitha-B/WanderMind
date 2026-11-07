@@ -3,12 +3,15 @@ import { useRouter } from "next/router";
 import { DateRange } from 'react-date-range';
 import { format } from 'date-fns';
 import { supabase } from '../utils/supabase';
+import { apiFetch } from '../utils/api';
+import { useRequireAuth } from '../utils/useRequireAuth';
 
 import 'react-date-range/dist/styles.css'; 
 import 'react-date-range/dist/theme/default.css';
 
 export default function Home() {
 	const router = useRouter();
+	const session = useRequireAuth();
 	const [interests, setInterests] = useState("culture, food");
 	const [destination, setDestination] = useState("");
 	const [days, setDays] = useState(1);
@@ -40,12 +43,8 @@ export default function Home() {
             // 2. Clean the interests string into an array by splitting on commas and trimming whitespace
             const interestsArray = interests.split(',').map(i => i.trim()).filter(Boolean);
 
-            const response = await fetch("http://localhost:8000/generate-itinerary", {
+            const data = await apiFetch("/api/v1/itineraries/generate", {
                 method: "POST",
-                headers: {
-                    "Content-Type": "application/json",
-                },
-               
                 body: JSON.stringify({
                     destination: destination,
                     start_date: formattedStartDate,
@@ -53,21 +52,23 @@ export default function Home() {
                     interests: interestsArray
                 }),
             });
-            if (!response.ok) {
-                throw new Error("Failed to generate itinerary");
-            }
-
-            const data = await response.json();
             setItinerary(data);
         } catch (error) {
             console.error("Generation failed:", error);
+            alert(`Failed to generate itinerary: ${error.message}`);
         } finally {
             setLoading(false);
         }
     };
 
-	const handleLogout = () => {
+	const handleLogout = async () => {
 		setIsProfileOpen(false);
+		const { error } = await supabase.auth.signOut();
+		if (error) {
+			// Still end this browser's session if the server call failed.
+			console.error("Sign out failed:", error);
+			await supabase.auth.signOut({ scope: "local" });
+		}
 		router.push("/login");
 	};
 
@@ -101,30 +102,17 @@ export default function Home() {
             setIsSaving(true);
 
         try {
-        // 1. Grab the current user session ID from the authentication context layer
-            const { data: { user }, error: userError } = await supabase.auth.getUser();
-        
-            if (userError || !user) {
-                alert("You must be logged in to save itineraries!");
-                setIsSaving(false);
-                return;
-            }
-
-            // 2. Format dates from your local calendar tracking objects
+            // 1. Format dates from your local calendar tracking objects
             const formattedStartDate = format(dateRange[0].startDate, 'yyyy-MM-dd');
             const formattedEndDate = format(dateRange[0].endDate, 'yyyy-MM-dd');
 
-            // 3. Clean interests string into an array split payload
+            // 2. Clean interests string into an array split payload
             const interestsArray = interests.split(',').map(i => i.trim()).filter(Boolean);
 
-            // 4. Fire the data request straight to your FastAPI endpoint gate!
-            const response = await fetch("http://localhost:8000/save-itinerary", {
+            // 3. The backend takes the owner from the verified access token
+            await apiFetch("/api/v1/trips", {
                 method: "POST",
-                headers: {
-                    "Content-Type": "application/json",
-                },
                 body: JSON.stringify({
-                    user_id: user.id,                     // Crucial binding anchor
                     destination: itinerary.destination,   // Extracted city/country title string
                     start_date: formattedStartDate,       
                     end_date: formattedEndDate,           
@@ -132,11 +120,6 @@ export default function Home() {
                     itinerary_data: itinerary.itinerary   // Pass the generated JSON array layout
                 }),
             });
-
-            if (!response.ok) {
-                const errorData = await response.json();
-                throw new Error(errorData.detail || "Server rejected save query");
-            }
 
             alert("Itinerary saved to your dashboard successfully!");
 
@@ -147,6 +130,8 @@ export default function Home() {
             setIsSaving(false);
         }
     };
+
+	if (!session) return null;
 
 	return (
 		<div className="min-h-screen w-full bg-slate-50">
