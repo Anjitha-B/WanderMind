@@ -1,6 +1,8 @@
 const { test, expect } = require('@playwright/test');
 
 const API = 'http://127.0.0.1:8100';
+const SUPABASE = 'http://127.0.0.1:54321';
+const ANON_KEY = process.env.SUPABASE_TEST_ANON_KEY;
 const PASSWORD = 'e2e-password-123';
 
 function newEmail(label) {
@@ -31,6 +33,24 @@ function recordApiRequests(page) {
     }
   });
   return requests;
+}
+
+/** The signed-in user's access token, read from the Supabase session storage. */
+async function accessToken(page) {
+  return page.evaluate(() => {
+    const key = Object.keys(localStorage).find((k) => k.endsWith('-auth-token'));
+    const cookie = document.cookie
+      .split('; ')
+      .filter((c) => c.includes('-auth-token'))
+      .map((c) => c.split('=').slice(1).join('='));
+    const raw = key ? localStorage.getItem(key) : decodeURIComponent(cookie.join(''));
+    const json = raw.startsWith('base64-') ? atob(raw.slice(7)) : raw;
+    return JSON.parse(json).access_token;
+  });
+}
+
+function subjectOf(token) {
+  return JSON.parse(Buffer.from(token.split('.')[1], 'base64url').toString()).sub;
 }
 
 async function signUp(page, email) {
@@ -65,6 +85,24 @@ test('trip lifecycle, logout, and isolation between two accounts', async ({ brow
 
   await test.step('sign up, log out, and log back in', async () => {
     await signUp(pageA, emailA);
+
+    // The signup trigger (handle_new_user, with an empty search_path) made a profile.
+    const token = await accessToken(pageA);
+    const response = await pageA.request.get(
+      `${SUPABASE}/rest/v1/profiles?select=id,firstname,lastname,home_country,preferred_currency`,
+      { headers: { apikey: ANON_KEY, Authorization: `Bearer ${token}` } },
+    );
+    expect(response.status()).toBe(200);
+    expect(await response.json()).toEqual([
+      {
+        id: subjectOf(token),
+        firstname: '',
+        lastname: '',
+        home_country: '',
+        preferred_currency: 'USD',
+      },
+    ]);
+
     await logOut(pageA);
     await logIn(pageA, emailA);
   });
@@ -112,16 +150,9 @@ test('trip lifecycle, logout, and isolation between two accounts', async ({ brow
     await expect(pageB.getByText('📍 Lisbon')).toHaveCount(0);
 
     // Straight to the API with B's own token and A's trip id.
+    const tokenB = await accessToken(pageB);
     const statuses = await pageB.evaluate(
-      async ({ api, id }) => {
-        const key = Object.keys(localStorage).find((k) => k.endsWith('-auth-token'));
-        const cookie = document.cookie
-          .split('; ')
-          .filter((c) => c.includes('-auth-token'))
-          .map((c) => c.split('=').slice(1).join('='));
-        const raw = key ? localStorage.getItem(key) : decodeURIComponent(cookie.join(''));
-        const json = raw.startsWith('base64-') ? atob(raw.slice(7)) : raw;
-        const token = JSON.parse(json).access_token;
+      async ({ api, id, token }) => {
         const headers = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
         const patch = await fetch(`${api}/api/v1/trips/${id}`, {
           method: 'PATCH',
@@ -132,7 +163,7 @@ test('trip lifecycle, logout, and isolation between two accounts', async ({ brow
         const list = await (await fetch(`${api}/api/v1/trips`, { headers })).json();
         return { patch: patch.status, del: del.status, listed: list.trips.length };
       },
-      { api: API, id: tripId },
+      { api: API, id: tripId, token: tokenB },
     );
     expect(statuses).toEqual({ patch: 404, del: 404, listed: 0 });
     await contextB.close();
