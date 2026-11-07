@@ -14,3 +14,8 @@ backend/logs/
 
 # OS specific files
 .DS_Store
+
+# End-to-end tests
+e2e/node_modules/
+e2e/test-results/
+e2e/playwright-report/

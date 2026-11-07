@@ -188,6 +188,21 @@ pytest -m integration
 
 They are skipped by a plain `pytest`.
 
+### End-to-end tests
+
+Playwright drives the real frontend and API against the local Supabase stack. It covers sign-up, login, generation, save, edit, delete, logout with the Back button, and a second account that cannot see or change the first account's trips. Gemini and Tavily are replaced with a deterministic fake (`e2e/e2e_server.py`); everything else is real.
+
+With the local stack running and `SUPABASE_TEST_ANON_KEY` exported as above:
+
+```bash
+cd e2e
+npm install
+npx playwright install chromium
+E2E_PYTHON=../backend/venv/bin/python npx playwright test
+```
+
+`E2E_PYTHON` is the Python with the backend requirements installed. The run builds the frontend into `frontend/.next` with local settings, so rebuild before using `next start` against your real project.
+
 ---
 
 ## Known limitations and roadmap
