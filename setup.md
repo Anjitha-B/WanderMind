@@ -1,91 +1,71 @@
-### Step 1: Database Setup & Policy Configuration (Supabase Console)
+# Database setup
 
-To initialize your entire database infrastructure, relations, security policies, and sync triggers in a single step:
+The schema lives in [`supabase/migrations/`](./supabase/migrations). Apply migrations with the Supabase CLI instead of pasting SQL. Commands run from the repo root, and `npx supabase` needs no global install.
 
-1. Log into your **Supabase Dashboard** and navigate to your project workspace.
-2. Open the **SQL Editor** tab from the left sidebar navigation menu.
-3. Click **New Query**, paste the complete initialization script below, and hit **Run**:
+| Migration | Purpose |
+|---|---|
+| `20261106000000_initial_schema.sql` | Baseline: the schema as it exists on the live project |
+| `20261106000100_harden_functions_and_constraints.sql` | Trigger function hardening and CHECK constraints |
 
-```sql
--- =====================================================================
--- 1. CLEAN UP STRUCTURE (Ensures a fresh setup if run multiple times)
--- =====================================================================
-DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
-DROP TRIGGER IF EXISTS on_profile_modified ON public.profiles;
-DROP TABLE IF EXISTS public.itineraries;
-DROP TABLE IF EXISTS public.profiles;
+## A new project
 
--- =====================================================================
--- 2. CREATE SCHEMAS & RELATIONSHIPS
--- =====================================================================
+```bash
+npx supabase login
+npx supabase link --project-ref <project-ref>
+npx supabase db push
+```
 
--- Table A: User Profile Metadata Context Cache
-CREATE TABLE public.profiles (
-    id uuid NOT NULL PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
-    firstname text,
-    lastname text,
-    date_of_birth date,
-    home_country text,
-    preferred_currency text DEFAULT 'USD'::text,
-    preferrences text,
-    created_at timestamp with time zone DEFAULT now() NOT NULL,
-    modified_at timestamp with time zone
-);
+## The existing live project
 
--- Table B: Itinerary Persistence & Travel Configurations
-CREATE TABLE public.itineraries (
-    id uuid DEFAULT gen_random_uuid() NOT NULL PRIMARY KEY,
-    user_id uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
-    destination text NOT NULL,
-    start_date date NOT NULL,
-    end_date date NOT NULL,
-    interests jsonb,
-    itinerary_data jsonb NOT NULL,
-    created_at timestamp with time zone DEFAULT now() NOT NULL
-);
+The tables already exist there, so the baseline must be recorded as applied without running. Only the second migration runs.
 
--- =====================================================================
--- 3. ROW LEVEL SECURITY (RLS) & POLICIES
--- =====================================================================
-ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.itineraries ENABLE ROW LEVEL SECURITY;
+**1. Generate the baseline in a throwaway directory.**
 
--- Security Firewalls: Isolate data so users can only access their own records
-CREATE POLICY "Users can manage their own profiles" 
-ON public.profiles FOR ALL TO authenticated 
-USING ((auth.uid() = id)) WITH CHECK ((auth.uid() = id));
+`db pull` will not run alongside local migrations that the remote history has not recorded, so it has to run outside this repo. It also writes a row to the remote migration history without prompting, and the next step removes that row.
 
-CREATE POLICY "Users can manage their own itineraries" 
-ON public.itineraries FOR ALL TO authenticated 
-USING ((auth.uid() = user_id)) WITH CHECK ((auth.uid() = user_id));
+```bash
+mkdir /tmp/wandermind-baseline && cd /tmp/wandermind-baseline
+npx supabase init
+npx supabase login
+npx supabase link --project-ref <project-ref>
+npx supabase db pull
+PULLED=$(ls supabase/migrations/*_remote_schema.sql)
+PULLED_VERSION=$(basename "$PULLED" | cut -d_ -f1)
+npx supabase migration repair --status reverted "$PULLED_VERSION"
+```
 
--- =====================================================================
--- 4. AUTOMATION PROCEDURES & TRIGGERS (PL/pgSQL)
--- =====================================================================
+**2. Replace the baseline in this repo with the pulled file, keeping the baseline's name.**
 
--- Sync Profiles instantly upon new user registration
-CREATE OR REPLACE FUNCTION public.handle_new_user()
-RETURNS trigger AS $$
-BEGIN
-    INSERT INTO public.profiles (id)
-    VALUES (new.id);
-    RETURN new;
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+```bash
+cp "$PULLED" <repo>/supabase/migrations/20261106000000_initial_schema.sql
+```
 
-CREATE TRIGGER on_auth_user_created
-    AFTER INSERT ON auth.users
-    FOR EACH ROW EXECUTE PROCEDURE public.handle_new_user();
+**3. Mark the baseline as applied.** Run this from the repo: `migration repair` fails if the migration file is not in the current directory.
 
--- Auto update 'modified_at' timestamps upon profile update edits
-CREATE OR REPLACE FUNCTION public.handle_profile_modification()
-RETURNS trigger AS $$
-BEGIN
-    new.modified_at = now();
-    RETURN new;
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+```bash
+cd <repo>
+npx supabase link --project-ref <project-ref>
+npx supabase migration repair --status applied 20261106000000
+npx supabase migration list
+```
 
-CREATE TRIGGER on_profile_modified
-    BEFORE UPDATE ON public.profiles
-    FOR EACH ROW EXECUTE PROCEDURE public.handle_profile_modification();
+Stop here unless `migration list` shows `20261106000000` on **both** the local and remote sides and `20261106000100` on the local side only. If the baseline is missing from the remote side, `db push` will try to run it.
+
+**4. Check existing rows.** Run [`supabase/preflight_constraints.sql`](./supabase/preflight_constraints.sql) in the SQL Editor. It is read-only and reports violations per constraint.
+
+The migration handles either result. It adds each constraint as `NOT VALID`, then validates those with no violating rows. A constraint with violations stays `NOT VALID`: new writes must pass it, and existing rows are left alone. Migrations never change or delete rows.
+
+**5. Apply the second migration.**
+
+```bash
+npx supabase db push
+```
+
+## Local development
+
+```bash
+npx supabase start
+npx supabase db reset
+```
+
+`db reset` rebuilds the local database from the migrations. It only affects the local stack.
