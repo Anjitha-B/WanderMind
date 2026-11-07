@@ -1,6 +1,6 @@
 -- Read-only. Counts existing rows that would break each new constraint.
 -- Run it in the Supabase SQL Editor, before applying the second migration.
--- Column names assume setup.md; adjust if `db pull` shows otherwise.
+-- Column names match the live schema pulled on 2026-11-07.
 SELECT 'itineraries_data_is_array' AS check_name, count(*) AS violations
   FROM public.itineraries WHERE jsonb_typeof(itinerary_data) <> 'array'
 UNION ALL SELECT 'itineraries_data_day_count', count(*)
@@ -26,5 +26,5 @@ UNION ALL SELECT 'profiles_home_country_length', count(*)
   FROM public.profiles WHERE char_length(home_country) > 100
 UNION ALL SELECT 'profiles_preferred_currency_length', count(*)
   FROM public.profiles WHERE char_length(preferred_currency) > 10
-UNION ALL SELECT 'profiles_preferrences_length', count(*)
-  FROM public.profiles WHERE char_length(preferrences) > 2000;
+UNION ALL SELECT 'profiles_preferences_length', count(*)
+  FROM public.profiles WHERE char_length(preferences) > 2000;

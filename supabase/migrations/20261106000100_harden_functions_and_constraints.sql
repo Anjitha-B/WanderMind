@@ -1,30 +1,43 @@
 -- Runs on every environment, including live. Never changes or deletes rows.
 
--- 1. SECURITY DEFINER functions: empty search_path, every reference qualified.
+-- 1. Trigger functions: empty search_path, every reference schema-qualified.
+--
+-- handle_new_user is SECURITY DEFINER. The body is the live one, unchanged apart
+-- from the search_path. CREATE OR REPLACE keeps the existing grants and owner.
 CREATE OR REPLACE FUNCTION public.handle_new_user()
-RETURNS trigger
-LANGUAGE plpgsql
-SECURITY DEFINER
-SET search_path = ''
-AS $$
-BEGIN
-    INSERT INTO public.profiles (id)
-    VALUES (new.id);
-    RETURN new;
-END;
-$$;
+  RETURNS TRIGGER
+  LANGUAGE plpgsql
+  SECURITY DEFINER
+  SET search_path = ''
+  AS $function$
+begin
+  insert into public.profiles (id, firstname, lastname, home_country, preferred_currency)
+  values (
+    new.id,
+    '',
+    '',
+    '',
+    'USD'
+  );
+  return new;
+end;
+$function$;
 
-CREATE OR REPLACE FUNCTION public.handle_profile_modification()
-RETURNS trigger
-LANGUAGE plpgsql
-SECURITY DEFINER
-SET search_path = ''
-AS $$
-BEGIN
-    new.modified_at = pg_catalog.now();
-    RETURN new;
-END;
-$$;
+-- set_current_modified_at backs the on_profile_modified trigger. It runs with the
+-- caller's rights, and stays that way; pinning search_path is still cheap insurance.
+CREATE OR REPLACE FUNCTION public.set_current_modified_at()
+  RETURNS TRIGGER
+  LANGUAGE plpgsql
+  SET search_path = ''
+  AS $function$
+begin
+  new.modified_at = pg_catalog.now();
+  return new;
+end;
+$function$;
+
+-- public.rls_auto_enable (the other SECURITY DEFINER function) is left alone. It is
+-- an event trigger function that already pins search_path to pg_catalog.
 
 -- 2. CHECK constraints. These also cover writes that skip FastAPI and go straight
 -- to PostgREST with a user token.
@@ -59,8 +72,8 @@ ALTER TABLE public.profiles
         CHECK (char_length(home_country) <= 100) NOT VALID,
     ADD CONSTRAINT profiles_preferred_currency_length
         CHECK (char_length(preferred_currency) <= 10) NOT VALID,
-    ADD CONSTRAINT profiles_preferrences_length
-        CHECK (char_length(preferrences) <= 2000) NOT VALID;
+    ADD CONSTRAINT profiles_preferences_length
+        CHECK (char_length(preferences) <= 2000) NOT VALID;
 
 -- 3. Validate each constraint only if no existing row breaks it. A constraint with
 -- violations stays NOT VALID: enforced for new writes, existing rows left alone.

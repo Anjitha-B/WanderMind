@@ -103,7 +103,7 @@ def test_null_interests_are_accepted(rest, user_a):
         ("lastname", "x" * 101),
         ("home_country", "x" * 101),
         ("preferred_currency", "x" * 11),
-        ("preferrences", "x" * 2001),
+        ("preferences", "x" * 2001),
     ],
 )
 def test_profile_length_caps(rest, user_a, column, value):
@@ -128,9 +128,12 @@ def test_repository_surfaces_constraint_failure_as_a_typed_error(user_a, anon_ke
 
 
 def test_triggers_work_with_an_empty_search_path(rest, user_a):
-    """Signing up ran handle_new_user; this update runs handle_profile_modification."""
+    """Signing up ran handle_new_user; this update runs set_current_modified_at."""
     params = {"id": f"eq.{user_a.id}"}
-    assert rest.request("GET", "profiles", user_a, params=params).json()[0]["modified_at"] is None
+    created = rest.request("GET", "profiles", user_a, params=params).json()[0]
+    assert (created["firstname"], created["preferred_currency"]) == ("", "USD")
+
     updated = rest.request("PATCH", "profiles", user_a, params=params, json={"firstname": "Ada"})
     assert updated.status_code == 200
-    assert updated.json()[0]["modified_at"] is not None
+    assert updated.json()[0]["firstname"] == "Ada"
+    assert updated.json()[0]["modified_at"] > created["modified_at"]

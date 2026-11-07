@@ -138,10 +138,20 @@ export default function Profile() {
     }
     }
 
-    // Save/Update records using clean upsert bound to user UUID
+    // The signup trigger creates every profile row, and profiles has no INSERT
+    // policy, so a missing row cannot be fixed from here.
+    if (!profileExists) {
+      setMessage({
+        type: 'error',
+        text: 'Your traveler profile was not found. Please sign out and back in, or contact support.',
+      });
+      return;
+    }
+
+    // Update the existing row
     setSaving(true);
     const activeColumnMap = profileColumnMaps[columnProfile] || profileColumnMaps.default;
-    const buildPayload = (columnMap, includeId = false) => {
+    const buildPayload = (columnMap) => {
       const payload = {
         [columnMap.firstName]: cleanFirst,
         [columnMap.lastName]: cleanLast,
@@ -150,13 +160,10 @@ export default function Profile() {
         [columnMap.preferredCurrency]: preferredCurrency,
         [columnMap.preferences]: preferences,
       };
-      if (includeId) {
-        payload.id = user.id;
-      }
       return payload;
     };
 
-  const payload = buildPayload(activeColumnMap, !profileExists);
+  const payload = buildPayload(activeColumnMap);
     const defaultColumnSet = [
       'id',
       'first_name',
@@ -185,21 +192,27 @@ export default function Profile() {
       Object.entries(payload).filter(([key]) => allowedColumns.has(key))
     );
 
-    const saveQuery = profileExists
-      ? supabase.from('profiles').update(sanitizedPayload).eq('id', user.id).select().maybeSingle()
-      : supabase.from('profiles').insert(sanitizedPayload).select().maybeSingle();
+    const saveQuery = supabase
+      .from('profiles')
+      .update(sanitizedPayload)
+      .eq('id', user.id)
+      .select()
+      .maybeSingle();
 
     let { data: savedRow, error } = await saveQuery;
 
     if (error && columnProfile !== 'legacy') {
       const fallbackMap = profileColumnMaps.legacy;
-  const fallbackPayload = buildPayload(fallbackMap, !profileExists);
+  const fallbackPayload = buildPayload(fallbackMap);
       const sanitizedFallback = Object.fromEntries(
         Object.entries(fallbackPayload).filter(([key]) => allowedColumns.has(key))
       );
-      const fallbackQuery = profileExists
-        ? supabase.from('profiles').update(sanitizedFallback).eq('id', user.id).select().maybeSingle()
-        : supabase.from('profiles').insert(sanitizedFallback).select().maybeSingle();
+      const fallbackQuery = supabase
+        .from('profiles')
+        .update(sanitizedFallback)
+        .eq('id', user.id)
+        .select()
+        .maybeSingle();
       const fallbackResult = await fallbackQuery;
       error = fallbackResult.error;
       savedRow = fallbackResult.data;

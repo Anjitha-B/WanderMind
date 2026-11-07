@@ -1,4 +1,6 @@
 """RLS alone must stop cross-user access. These calls carry no user_id filter."""
+import uuid
+
 import pytest
 
 from app.core.config import Settings
@@ -79,6 +81,15 @@ def test_b_cannot_read_or_change_a_profile(rest, user_a, user_b):
         "PATCH", "profiles", user_b, params=params, json={"firstname": "Hijacked"}
     )
     assert response.json() == []
+
+
+def test_profiles_have_no_insert_policy(rest, user_a, user_b):
+    """Profiles come only from the signup trigger, so direct inserts are refused."""
+    response = rest.request(
+        "POST", "profiles", user_a, json={"id": str(uuid.uuid4())}, returning="minimal"
+    )
+    assert response.status_code == 403
+    assert response.json()["code"] == "42501"
 
 
 def test_repository_works_with_a_real_user_token(user_a, user_b, anon_key):
