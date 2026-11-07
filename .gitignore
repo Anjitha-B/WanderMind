@@ -4,7 +4,9 @@ frontend/.next/
 frontend/.env.local
 
 # Backend exclusions
-backend/__pycache__/
+__pycache__/
+.pytest_cache/
+.venv/
 backend/venv/
 backend/.env
 backend/logs/
@@ -12,4 +14,8 @@ backend/logs/
 
 # OS specific files
 .DS_Store
-backend/logs/app.log
+
+# End-to-end tests
+e2e/node_modules/
+e2e/test-results/
+e2e/playwright-report/
