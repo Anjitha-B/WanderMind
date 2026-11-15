@@ -1,4 +1,5 @@
 """CHECK constraints reject bad writes that bypass FastAPI entirely."""
+
 import json
 import random
 import string
@@ -8,7 +9,7 @@ import pytest
 from app.core.config import Settings
 from app.db.trips import (
     SupabaseTripRepository,
-    TripConstraintViolation,
+    TripConstraintError,
     build_user_client,
 )
 from tests.integration.conftest import API_URL, trip_row
@@ -19,7 +20,9 @@ CHECK_VIOLATION = "23514"
 
 
 def random_text(length: int) -> str:
-    return "".join(random.choices(string.ascii_letters + string.digits, k=length))
+    # Filler text, not a secret.
+    chars = string.ascii_letters + string.digits
+    return "".join(random.choices(chars, k=length))  # noqa: S311
 
 
 def oversized_itinerary() -> list[dict]:
@@ -97,7 +100,7 @@ def test_null_interests_are_accepted(rest, user_a):
 
 
 @pytest.mark.parametrize(
-    "column,value",
+    ("column", "value"),
     [
         ("firstname", "x" * 101),
         ("lastname", "x" * 101),
@@ -123,7 +126,7 @@ def test_repository_surfaces_constraint_failure_as_a_typed_error(user_a, anon_ke
     )
     repo = SupabaseTripRepository(build_user_client(settings, user_a.token))
     body = {k: v for k, v in trip_row(user_a.id).items() if k != "user_id"}
-    with pytest.raises(TripConstraintViolation):
+    with pytest.raises(TripConstraintError):
         repo.create_trip(user_a.id, {**body, "itinerary_data": oversized_itinerary()})
 
 
@@ -133,7 +136,9 @@ def test_triggers_work_with_an_empty_search_path(rest, user_a):
     created = rest.request("GET", "profiles", user_a, params=params).json()[0]
     assert (created["firstname"], created["preferred_currency"]) == ("", "USD")
 
-    updated = rest.request("PATCH", "profiles", user_a, params=params, json={"firstname": "Ada"})
+    updated = rest.request(
+        "PATCH", "profiles", user_a, params=params, json={"firstname": "Ada"}
+    )
     assert updated.status_code == 200
     assert updated.json()[0]["firstname"] == "Ada"
     assert updated.json()[0]["modified_at"] > created["modified_at"]

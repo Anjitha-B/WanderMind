@@ -1,4 +1,5 @@
 """Application settings. Missing required values fail at startup, not at first use."""
+
 import os
 from functools import lru_cache
 from pathlib import Path
@@ -8,7 +9,6 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 BACKEND_DIR = Path(__file__).resolve().parents[2]
 
-MAX_TRIP_DAYS = 14
 MAX_ITINERARY_DAYS = 30
 MAX_ACTIVITIES_PER_DAY = 15
 MAX_ACTIVITY_LENGTH = 500
@@ -35,6 +35,9 @@ class Settings(BaseSettings):
 
     generate_rate_limit: str = "5/minute;30/day"
 
+    # Longest trip that can be generated or saved, in days.
+    max_trip_days: int = Field(default=14, ge=1, le=MAX_ITINERARY_DAYS)
+
     jwks_cache_seconds: int = 600
     jwks_timeout_seconds: float = 5
 
@@ -54,7 +57,9 @@ class Settings(BaseSettings):
     def allowed_origin_list(self) -> list[str]:
         origins = [o.strip() for o in self.allowed_origins.split(",") if o.strip()]
         if "*" in origins:
-            raise ValueError("ALLOWED_ORIGINS must list explicit origins, not a wildcard")
+            raise ValueError(
+                "ALLOWED_ORIGINS must list explicit origins, not a wildcard"
+            )
         return origins
 
 

@@ -1,4 +1,5 @@
 """Every token here goes through the real verifier. get_current_user is not stubbed."""
+
 import time
 
 import jwt
@@ -39,7 +40,9 @@ def _bad_headers():
         "wrong_issuer": {
             "Authorization": f"Bearer {make_token(iss='https://evil.example/auth/v1')}"
         },
-        "wrong_signature": {"Authorization": f"Bearer {make_token(key=OTHER_PRIVATE_KEY)}"},
+        "wrong_signature": {
+            "Authorization": f"Bearer {make_token(key=OTHER_PRIVATE_KEY)}"
+        },
         "unknown_kid": {
             "Authorization": f"Bearer {make_token(key=OTHER_PRIVATE_KEY, kid='other')}"
         },
@@ -72,7 +75,7 @@ def _bad_headers():
 BAD_HEADERS = _bad_headers()
 
 
-@pytest.mark.parametrize("method,path", ENDPOINTS)
+@pytest.mark.parametrize(("method", "path"), ENDPOINTS)
 @pytest.mark.parametrize("case", BAD_HEADERS)
 def test_bad_credentials_get_401_on_every_endpoint(client, method, path, case):
     response = client.request(method, path, headers=BAD_HEADERS[case], json={})
@@ -102,7 +105,9 @@ def test_old_routes_are_gone(client):
 
 
 def test_verifier_returns_the_subject_of_a_valid_token():
-    verifier = JwksTokenVerifier(StaticJwksClient("https://jwks.invalid"), issuer=ISSUER)
+    verifier = JwksTokenVerifier(
+        StaticJwksClient("https://jwks.invalid"), issuer=ISSUER
+    )
     assert verifier.verify(make_token()) == "aaaaaaaa-0000-4000-8000-00000000000a"
 
 
@@ -122,7 +127,9 @@ def test_jwks_outage_is_503_not_401(app, client):
 
 
 def test_token_never_appears_in_repr():
-    assert "s3cret" not in repr(CurrentUser(id="u", token="s3cret"))
+    # A made-up value, used to check that repr() hides the token field.
+    user = CurrentUser(id="u", token="s3cret")  # noqa: S106
+    assert "s3cret" not in repr(user)
 
 
 def test_jwks_settings_point_at_the_project():

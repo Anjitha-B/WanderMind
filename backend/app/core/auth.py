@@ -4,13 +4,14 @@ This project signs tokens with an asymmetric ES256 key published at
 `/auth/v1/.well-known/jwks.json`, so tokens are verified locally against the
 public key. The accepted algorithm is fixed here and never read from the token.
 """
+
 import logging
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Annotated, Protocol
 from uuid import UUID
 
 import jwt
-from fastapi import HTTPException, Request
+from fastapi import Depends, HTTPException, Request
 from jwt import PyJWKClient
 from jwt.exceptions import PyJWKClientConnectionError, PyJWTError
 
@@ -31,17 +32,17 @@ class CurrentUser:
         return f"CurrentUser(id={self.id!r})"
 
 
-class InvalidToken(Exception):
+class TokenRejectedError(Exception):
     pass
 
 
-class VerifierUnavailable(Exception):
+class VerifierUnavailableError(Exception):
     pass
 
 
 class TokenVerifier(Protocol):
     def verify(self, token: str) -> str:
-        """Return the verified user id, or raise InvalidToken."""
+        """Return the verified user id, or raise TokenRejectedError."""
 
 
 class JwksTokenVerifier:
@@ -54,7 +55,7 @@ class JwksTokenVerifier:
             # Checked before any key lookup so that forged headers cannot trigger
             # JWKS refetches and `none`/HS256 tokens are refused outright.
             if jwt.get_unverified_header(token).get("alg") not in ALLOWED_ALGORITHMS:
-                raise InvalidToken
+                raise TokenRejectedError
             signing_key = self._jwks_client.get_signing_key_from_jwt(token)
             claims = jwt.decode(
                 token,
@@ -66,9 +67,9 @@ class JwksTokenVerifier:
             )
             return str(UUID(claims["sub"]))
         except PyJWKClientConnectionError as exc:
-            raise VerifierUnavailable from exc
+            raise VerifierUnavailableError from exc
         except (PyJWTError, ValueError, TypeError) as exc:
-            raise InvalidToken from exc
+            raise TokenRejectedError from exc
 
 
 def build_token_verifier(settings: Settings) -> TokenVerifier:
@@ -98,12 +99,17 @@ def get_current_user(request: Request) -> CurrentUser:
 
     try:
         user_id = request.app.state.token_verifier.verify(token)
-    except InvalidToken:
+    except TokenRejectedError:
         raise _unauthorized() from None
-    except VerifierUnavailable:
+    except VerifierUnavailableError:
         # A 401 here would sign every user out during a brief JWKS outage.
         logger.exception("jwks_unavailable")
-        raise HTTPException(status_code=503, detail="Service temporarily unavailable") from None
+        raise HTTPException(
+            status_code=503, detail="Service temporarily unavailable"
+        ) from None
 
     request.state.user_id = user_id  # read by the rate limiter
     return CurrentUser(id=user_id, token=token)
+
+
+AuthenticatedUser = Annotated[CurrentUser, Depends(get_current_user)]

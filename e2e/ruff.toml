@@ -1,0 +1,2 @@
+# The fake API server follows the backend rules.
+extend = "../backend/pyproject.toml"

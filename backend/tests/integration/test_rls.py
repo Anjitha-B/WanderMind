@@ -1,4 +1,5 @@
 """RLS alone must stop cross-user access. These calls carry no user_id filter."""
+
 import uuid
 
 import pytest

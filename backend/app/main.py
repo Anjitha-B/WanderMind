@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from google import genai
 from tavily import TavilyClient
 
-from app.api import itineraries, trips
+from app.api import health, itineraries, trips
 from app.core.auth import build_token_verifier
 from app.core.config import Settings, get_settings
 from app.core.errors import RequestContextMiddleware, register_exception_handlers
@@ -38,6 +38,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
 
     register_exception_handlers(app)
+    app.include_router(health.router)
     app.include_router(trips.router)
     app.include_router(itineraries.router)
     return app

@@ -6,7 +6,7 @@ import pytest
 from postgrest.exceptions import APIError
 
 from app.core.logging import JsonFormatter, configure_logging, hash_user_id
-from app.db.trips import TripConstraintViolation, get_trip_repository
+from app.db.trips import TripConstraintError, get_trip_repository
 from tests.conftest import USER_A, auth_header
 
 LEAK = "connection to db.internal failed: password=hunter2"
@@ -28,7 +28,7 @@ def exploding(app):
 
 
 @pytest.mark.parametrize(
-    "method,path,body_name",
+    ("method", "path", "body_name"),
     [
         ("GET", "/api/v1/trips", None),
         ("POST", "/api/v1/trips", "trip"),
@@ -50,7 +50,8 @@ def test_500_never_contains_exception_text(
     payload = response.json()
     assert payload["detail"] == "Internal server error"
     assert payload["request_id"]
-    assert "hunter2" not in response.text and "RuntimeError" not in response.text
+    assert "hunter2" not in response.text
+    assert "RuntimeError" not in response.text
 
 
 def test_500_keeps_cors_headers_so_browsers_can_read_it(client, exploding):
@@ -81,7 +82,7 @@ def test_exception_details_are_logged_on_the_server(client, exploding, caplog):
 def test_database_constraint_failure_is_422_not_500(app, client, trip_body):
     class Constrained:
         def create_trip(self, *args):
-            raise TripConstraintViolation
+            raise TripConstraintError
 
     app.dependency_overrides[get_trip_repository] = Constrained
     response = client.post("/api/v1/trips", json=trip_body, headers=auth_header())
@@ -112,8 +113,8 @@ def test_wildcard_origin_is_refused():
     from app.core.config import Settings
 
     settings = Settings(_env_file=None, allowed_origins="*")
-    with pytest.raises(ValueError):
-        settings.allowed_origin_list
+    with pytest.raises(ValueError, match="wildcard"):
+        _ = settings.allowed_origin_list
 
 
 def test_log_lines_are_structured_json():

@@ -3,12 +3,13 @@
 Messages are fixed event names. Variable data goes in `extra` fields, and user
 free text (destinations, interests, activities) is never logged.
 """
+
 import hashlib
 import json
 import logging
 import sys
 from contextvars import ContextVar
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 request_id_var: ContextVar[str | None] = ContextVar("request_id", default=None)
 
@@ -25,7 +26,7 @@ def hash_user_id(user_id: str) -> str:
 class JsonFormatter(logging.Formatter):
     def format(self, record: logging.LogRecord) -> str:
         entry = {
-            "ts": datetime.fromtimestamp(record.created, timezone.utc).isoformat(),
+            "ts": datetime.fromtimestamp(record.created, UTC).isoformat(),
             "level": record.levelname,
             "logger": record.name,
             "event": record.getMessage(),
