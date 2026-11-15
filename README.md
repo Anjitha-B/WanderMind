@@ -56,7 +56,7 @@ sequenceDiagram
 
 ### Authentication
 
-1. The browser signs in with Supabase and receives an access token. Every API call sends it as `Authorization: Bearer <token>`, through `frontend/utils/api.js`.
+1. The browser signs in with Supabase and receives an access token. Every API call sends it as `Authorization: Bearer <token>`, through `frontend/utils/api.ts`.
 2. FastAPI verifies the token locally. Supabase signs tokens for this project with ES256, so the backend checks the signature against the public key from the JWKS endpoint (cached) and validates `exp`, `aud`, and `iss`. The accepted algorithm is fixed in code.
 3. The user ID comes only from the token's `sub` claim. The browser never sends a `user_id`, and a request body containing one is rejected with a 422.
 4. For each request the backend creates a Supabase client with the anon key and the user's token, so Postgres runs the query as that user and Row Level Security applies. The service role key is not used by the application.
@@ -99,7 +99,8 @@ A few decisions worth calling out:
 
 | Layer | Tools |
 |---|---|
-| Frontend | Next.js (Pages Router), React, Tailwind CSS v4, react-date-range |
+| Frontend | Next.js (Pages Router), React, TypeScript (strict), Tailwind CSS v4, react-date-range |
+| Frontend tooling | ESLint (Next config), Prettier, Vitest, React Testing Library, openapi-typescript |
 | Auth and data client | `@supabase/ssr`, `@supabase/supabase-js`, `@supabase/auth-ui-react` |
 | Backend | Python 3.13, FastAPI, Pydantic, Uvicorn, PyJWT, slowapi |
 | Backend tooling | uv, ruff, pytest, pip-audit, pre-commit with gitleaks |
@@ -129,7 +130,7 @@ Every `/api/v1` endpoint needs an `Authorization: Bearer <access_token>` header.
 
 ### Prerequisites
 
-- Node.js 18+
+- Node.js 20.9+
 - [uv](https://docs.astral.sh/uv/), which installs Python 3.13 for the backend
 - A free [Supabase](https://supabase.com) project
 - A [Google AI Studio](https://aistudio.google.com) API key
@@ -181,6 +182,15 @@ uv run pytest
 
 These need no network, Docker, or real credentials. Sockets are disabled during the run, and tokens are signed with a test key and checked by the real verifier.
 
+### Frontend unit tests
+
+```bash
+cd frontend
+npm test
+```
+
+Vitest and React Testing Library cover `apiFetch` (token attached, 401 redirects to `/login`, 422 errors formatted for people), the `useRequireAuth` hook, the profile name validator, and the itinerary edit helpers.
+
 ### Integration tests
 
 These run against a local Supabase stack and need Docker. They sign up two real users, then prove RLS blocks cross-user access using raw PostgREST calls with no `user_id` filter, and that CHECK constraints reject oversized data written directly with a user token. One suite runs the whole chain through FastAPI.
@@ -208,7 +218,7 @@ uv run pytest -m live -s
 
 ### End-to-end tests
 
-Playwright drives the real frontend and API against the local Supabase stack. It covers sign-up, login, generation, save, edit, delete, logout with the Back button, and a second account that cannot see or change the first account's trips. Gemini and Tavily are replaced with a deterministic fake (`e2e/e2e_server.py`); everything else is real.
+Playwright drives the real frontend and API against the local Supabase stack. It covers sign-up, login, generation, save, edit, the two-step delete, logout with the Back button, and a second account that cannot see or change the first account's trips. Gemini and Tavily are replaced with a deterministic fake (`e2e/e2e_server.py`); everything else is real.
 
 With the local stack running and `SUPABASE_TEST_ANON_KEY` exported as above:
 
@@ -232,7 +242,30 @@ uv run ruff format --check . ../e2e
 uv export --frozen --no-emit-project -o /tmp/requirements.txt && uv run pip-audit -r /tmp/requirements.txt --require-hashes --disable-pip
 ```
 
-Pre-commit runs ruff and [gitleaks](https://github.com/gitleaks/gitleaks) on each commit. Install the hook once per clone:
+```bash
+cd frontend
+npm run typecheck
+npm run lint
+npm run format:check
+npm run check:api
+npm run build
+```
+
+### API types
+
+`frontend/types/api.ts` is generated from the FastAPI OpenAPI schema with openapi-typescript, so the frontend's request and response types cannot drift from the backend's Pydantic models. After changing a schema or route in `backend/app`:
+
+```bash
+cd frontend
+npm run generate:api    # rewrite types/api.ts
+npm run check:api       # exits 1 if the committed file is out of date
+```
+
+Both read the schema from the backend code through `uv`, with no server or `.env` needed.
+
+### Pre-commit
+
+Pre-commit runs ruff, [gitleaks](https://github.com/gitleaks/gitleaks), Prettier, and the API types check on each commit. Install the hook once per clone:
 
 ```bash
 cd backend

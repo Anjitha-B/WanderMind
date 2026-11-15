@@ -1,14 +1,15 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/router';
+import type { Session } from '@supabase/supabase-js';
 import { supabase } from './supabase';
 
 /**
  * Sends signed-out visitors to /login. Returns the session, or null until one is
  * confirmed, so pages should render nothing protected while it is null.
  */
-export function useRequireAuth() {
+export function useRequireAuth(): Session | null {
   const router = useRouter();
-  const [session, setSession] = useState(null);
+  const [session, setSession] = useState<Session | null>(null);
 
   useEffect(() => {
     let active = true;

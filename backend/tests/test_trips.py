@@ -94,3 +94,33 @@ def test_user_id_in_update_body_is_rejected(client, trip_body):
 def test_stored_owner_is_the_token_subject(client, trip_body, repo):
     _create(client, trip_body, USER_B)
     assert repo.rows[0]["user_id"] == USER_B
+
+
+def test_openapi_documents_trip_responses(client):
+    paths = client.get("/openapi.json").json()["paths"]
+
+    def schema(path, method, status):
+        content = paths[path][method]["responses"][status]["content"]
+        return content["application/json"]["schema"]
+
+    trip = {"$ref": "#/components/schemas/Trip"}
+    assert schema("/api/v1/trips", "get", "200") == {
+        "$ref": "#/components/schemas/TripList"
+    }
+    assert schema("/api/v1/trips", "post", "201") == trip
+    assert schema("/api/v1/trips/{trip_id}", "patch", "200") == trip
+
+
+def test_stored_rows_are_returned_as_is_even_outside_the_documented_shape(client, repo):
+    # A trip saved before validation existed: the documented model would refuse it.
+    legacy = {
+        "id": "11111111-1111-4111-8111-111111111111",
+        "user_id": USER_A,
+        "destination": "Lisbon",
+        "itinerary_data": [{"day": 99, "activities": ["x"], "title": "old"}],
+    }
+    repo.rows.append(legacy)
+    response = client.get("/api/v1/trips", headers=auth_header())
+    assert response.status_code == 200
+    expected = {k: v for k, v in legacy.items() if k != "user_id"}
+    assert response.json() == {"trips": [expected]}

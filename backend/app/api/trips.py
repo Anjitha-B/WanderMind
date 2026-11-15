@@ -8,9 +8,12 @@ from fastapi.encoders import jsonable_encoder
 from app.core.auth import AuthenticatedUser
 from app.core.logging import hash_user_id
 from app.db.trips import TripConstraintError, Trips
-from app.schemas import TripCreate, TripUpdate
+from app.schemas import Trip, TripCreate, TripList, TripUpdate
 
 logger = logging.getLogger(__name__)
+# Trip and TripList describe the responses in OpenAPI only. With
+# response_model=None the stored rows are returned as they are, so trips saved
+# before the limits existed still load.
 router = APIRouter(prefix="/api/v1/trips", tags=["trips"])
 
 
@@ -30,7 +33,7 @@ def _trip_id(raw: str) -> str:
         raise _not_found() from None
 
 
-@router.get("")
+@router.get("", response_model=None, responses={200: {"model": TripList}})
 def list_trips(
     user: AuthenticatedUser,
     repo: Trips,
@@ -38,7 +41,12 @@ def list_trips(
     return {"trips": repo.list_trips(user.id)}
 
 
-@router.post("", status_code=status.HTTP_201_CREATED)
+@router.post(
+    "",
+    status_code=status.HTTP_201_CREATED,
+    response_model=None,
+    responses={201: {"model": Trip}},
+)
 def create_trip(
     body: TripCreate,
     user: AuthenticatedUser,
@@ -52,7 +60,7 @@ def create_trip(
     return trip
 
 
-@router.patch("/{trip_id}")
+@router.patch("/{trip_id}", response_model=None, responses={200: {"model": Trip}})
 def update_trip(
     trip_id: str,
     body: TripUpdate,
