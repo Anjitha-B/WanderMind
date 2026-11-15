@@ -4,27 +4,29 @@ import { useRouter } from 'next/router';
 import { DateRange, type Range } from 'react-date-range';
 import { format } from 'date-fns';
 import StatusMessage from '../components/StatusMessage';
-import type { GenerateRequest, ItineraryResponse, Status, Trip, TripCreate } from '../types/models';
+import type { ItineraryResponse, Status, Trip } from '../types/models';
 import { apiFetch, errorMessage } from '../utils/api';
 import { supabase } from '../utils/supabase';
+import {
+  buildGenerateRequest,
+  describeDates,
+  sameRequest,
+  tripToSave,
+  type GeneratedTrip,
+} from '../utils/trip';
 import { useRequireAuth } from '../utils/useRequireAuth';
 
 import 'react-date-range/dist/styles.css';
 import 'react-date-range/dist/theme/default.css';
-
-function parseInterests(text: string): string[] {
-  return text
-    .split(',')
-    .map((interest) => interest.trim())
-    .filter(Boolean);
-}
 
 export default function Home() {
   const router = useRouter();
   const session = useRequireAuth();
   const [interests, setInterests] = useState('culture, food');
   const [destination, setDestination] = useState('');
-  const [itinerary, setItinerary] = useState<ItineraryResponse | null>(null);
+  // The itinerary on screen and the request that produced it, kept together so
+  // that saving never depends on what the form holds later.
+  const [generated, setGenerated] = useState<GeneratedTrip | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
   const [generateError, setGenerateError] = useState<Status | null>(null);
   const [isSaving, setIsSaving] = useState(false);
@@ -40,23 +42,20 @@ export default function Home() {
   const startDate = dateRange.startDate ?? new Date();
   const endDate = dateRange.endDate ?? startDate;
   const displayDates = `${format(startDate, 'MMM dd, yyyy')} – ${format(endDate, 'MMM dd, yyyy')}`;
+  const formRequest = buildGenerateRequest({ destination, startDate, endDate, interests });
+  const formChanged = generated !== null && !sameRequest(generated.request, formRequest);
 
   const generateItinerary = async () => {
     setIsGenerating(true);
     setGenerateError(null);
     setSaveStatus(null);
-    const request: GenerateRequest = {
-      destination,
-      start_date: format(startDate, 'yyyy-MM-dd'),
-      end_date: format(endDate, 'yyyy-MM-dd'),
-      interests: parseInterests(interests),
-    };
+    const request = formRequest;
     try {
       const result = await apiFetch<ItineraryResponse>('/api/v1/itineraries/generate', {
         method: 'POST',
         body: JSON.stringify(request),
       });
-      setItinerary(result);
+      setGenerated({ request, result });
     } catch (error) {
       console.error('Generation failed:', error);
       setGenerateError({
@@ -69,17 +68,12 @@ export default function Home() {
   };
 
   const saveItinerary = async () => {
-    if (!itinerary) return;
+    if (!generated) return;
     setIsSaving(true);
     setSaveStatus(null);
-    // The backend takes the owner from the verified access token.
-    const trip: TripCreate = {
-      destination: itinerary.destination,
-      start_date: format(startDate, 'yyyy-MM-dd'),
-      end_date: format(endDate, 'yyyy-MM-dd'),
-      interests: parseInterests(interests),
-      itinerary_data: itinerary.itinerary,
-    };
+    // Built from the original request, not the form. The backend takes the owner
+    // from the verified access token.
+    const trip = tripToSave(generated);
     try {
       await apiFetch<Trip>('/api/v1/trips', { method: 'POST', body: JSON.stringify(trip) });
       setSaveStatus({ type: 'success', text: 'Itinerary saved to your dashboard successfully!' });
@@ -234,12 +228,15 @@ export default function Home() {
           <StatusMessage status={generateError} className="mt-4" />
         </div>
 
-        {itinerary && (
+        {generated && (
           <div className="mt-10 max-w-2xl">
             <div className="flex justify-between items-center mb-6">
-              <h2 className="text-2xl font-semibold text-[#652C15] font-sans">
-                Trip to {itinerary.destination}
-              </h2>
+              <div>
+                <h2 className="text-2xl font-semibold text-[#652C15] font-sans">
+                  Trip to {generated.result.destination}
+                </h2>
+                <p className="text-sm text-gray-500 mt-1">{describeDates(generated.request)}</p>
+              </div>
 
               <button
                 onClick={saveItinerary}
@@ -250,9 +247,20 @@ export default function Home() {
               </button>
             </div>
 
+            {formChanged && (
+              <p
+                role="note"
+                className="p-3 rounded-xl mb-6 text-sm bg-amber-50 text-amber-900 border border-amber-200"
+              >
+                The form has changed since this itinerary was generated. It was made for{' '}
+                {generated.request.destination}, {describeDates(generated.request)}, and saving
+                keeps those details. Generate again to plan for the new ones.
+              </p>
+            )}
+
             <StatusMessage status={saveStatus} className="mb-6" />
 
-            {itinerary.itinerary.map((day) => (
+            {generated.result.itinerary.map((day) => (
               <div key={day.day} className="bg-white p-4 rounded shadow mb-4">
                 <h3 className="text-xl font-bold mb-2">Day {day.day}</h3>
                 <ul className="list-disc ml-6">
