@@ -49,6 +49,12 @@ async function accessToken(page) {
   });
 }
 
+/** A Date as the YYYY-MM-DD calendar day in the local timezone, as the app sends it. */
+function localDay(date) {
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+}
+
 function subjectOf(token) {
   return JSON.parse(Buffer.from(token.split('.')[1], 'base64url').toString()).sub;
 }
@@ -134,6 +140,29 @@ test('trip lifecycle, logout, and isolation between two accounts', async ({ brow
     await expect(pageA.getByText('Mock activity 1.1')).toBeVisible();
   });
 
+  // The form's default range is today to today, which is what was generated for.
+  const generatedDay = localDay(new Date());
+
+  await test.step('changing the dates after generating does not change what is saved', async () => {
+    // Pick the 10th to the 12th of next month in the calendar.
+    await pageA.getByText('📅').click();
+    await pageA.locator('.rdrNextButton').click();
+    const days = pageA.locator('.rdrDay:not(.rdrDayPassive) .rdrDayNumber');
+    await days.getByText('10', { exact: true }).click();
+    await days.getByText('12', { exact: true }).click();
+    await pageA.getByRole('button', { name: 'Done' }).click();
+
+    // The form now shows other dates, and the page says which ones the itinerary is for.
+    const next = new Date();
+    next.setDate(1);
+    next.setMonth(next.getMonth() + 1);
+    const month = next.toLocaleString('en-US', { month: 'short' });
+    await expect(pageA.getByText(`📅 ${month} 10, ${next.getFullYear()} – ${month} 12, ${next.getFullYear()}`)).toBeVisible();
+    const note = pageA.getByRole('note');
+    await expect(note).toContainText('The form has changed since this itinerary was generated');
+    await expect(note).toContainText('Lisbon');
+  });
+
   let tripId;
   await test.step('save it', async () => {
     const saved = pageA.waitForResponse(
@@ -142,13 +171,26 @@ test('trip lifecycle, logout, and isolation between two accounts', async ({ brow
     await pageA.getByRole('button', { name: 'Save to My Trips' }).click();
     const response = await saved;
     expect(response.status()).toBe(201);
-    tripId = (await response.json()).id;
+    const savedTrip = await response.json();
+    tripId = savedTrip.id;
     await expect(pageA.getByRole('status')).toContainText('saved to your dashboard');
+
+    // Sent and stored with the dates and interests the itinerary was generated for.
+    const sent = JSON.parse(response.request().postData());
+    expect(sent).toMatchObject({
+      destination: 'Lisbon',
+      start_date: generatedDay,
+      end_date: generatedDay,
+      interests: ['food', 'trams'],
+    });
+    expect(savedTrip).toMatchObject({ start_date: generatedDay, end_date: generatedDay });
   });
 
   await test.step('edit it, and the edit survives a reload', async () => {
     await pageA.goto('/trips');
     await pageA.getByText('📍 Lisbon').click();
+    // The saved trip shows the original dates, not the ones picked afterwards.
+    await expect(pageA.getByText(`Dates: ${generatedDay} to ${generatedDay}`)).toBeVisible();
     await pageA.getByRole('button', { name: /Edit Trip/ }).click();
     await pageA.locator('input[value="Mock activity 1.1"]').fill('Pastéis de Belém');
     await pageA.getByRole('button', { name: /Save Changes/ }).click();
