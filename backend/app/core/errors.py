@@ -1,4 +1,5 @@
 """Request ids and client-safe error responses."""
+
 import logging
 import uuid
 
@@ -56,7 +57,9 @@ class RequestContextMiddleware:
             request_id_var.reset(token)
 
 
-def _error(status_code: int, detail, request_id: str | None, headers=None) -> JSONResponse:
+def _error(
+    status_code: int, detail, request_id: str | None, headers=None
+) -> JSONResponse:
     return JSONResponse(
         status_code=status_code,
         content={"detail": detail, "request_id": request_id},
@@ -84,4 +87,6 @@ def register_exception_handlers(app: FastAPI) -> None:
 
     @app.exception_handler(RateLimitExceeded)
     async def rate_limited(request: Request, exc: RateLimitExceeded):
-        return _error(429, "Too many requests. Please try again later.", _request_id(request))
+        return _error(
+            429, "Too many requests. Please try again later.", _request_id(request)
+        )

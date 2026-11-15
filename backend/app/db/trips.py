@@ -1,12 +1,13 @@
 """Trip storage. Handlers depend on TripRepository so tests can use a fake."""
+
 from collections.abc import Iterator
-from typing import Any, Protocol
+from typing import Annotated, Any, Protocol
 
 from fastapi import Depends, HTTPException, Request
 from postgrest.exceptions import APIError
 from supabase import Client, ClientOptions, create_client
 
-from app.core.auth import CurrentUser, get_current_user
+from app.core.auth import AuthenticatedUser
 from app.core.config import Settings
 
 # Deliberately excludes user_id: ownership is never echoed to clients.
@@ -15,7 +16,7 @@ CHECK_VIOLATION = "23514"
 JWT_REJECTED = ("PGRST301", "PGRST302", "PGRST303")
 
 
-class TripConstraintViolation(Exception):
+class TripConstraintError(Exception):
     """The database refused the row, e.g. an itinerary over the size limit."""
 
 
@@ -36,9 +37,11 @@ def _execute(query) -> list[dict[str, Any]]:
         return query.execute().data
     except APIError as exc:
         if exc.code == CHECK_VIOLATION:
-            raise TripConstraintViolation from exc
+            raise TripConstraintError from exc
         if exc.code in JWT_REJECTED:
-            raise HTTPException(status_code=401, detail="Invalid or missing access token") from exc
+            raise HTTPException(
+                status_code=401, detail="Invalid or missing access token"
+            ) from exc
         raise
 
 
@@ -73,9 +76,7 @@ class SupabaseTripRepository:
         return _public(rows[0]) if rows else None
 
     def delete_trip(self, user_id: str, trip_id: str) -> bool:
-        rows = _execute(
-            self._table().delete().eq("id", trip_id).eq("user_id", user_id)
-        )
+        rows = _execute(self._table().delete().eq("id", trip_id).eq("user_id", user_id))
         return bool(rows)
 
 
@@ -97,7 +98,7 @@ def build_user_client(settings: Settings, access_token: str) -> Client:
 
 
 def get_trip_repository(
-    request: Request, user: CurrentUser = Depends(get_current_user)
+    request: Request, user: AuthenticatedUser
 ) -> Iterator[TripRepository]:
     # One client per request. A shared client would risk one user's token being
     # sent on another's query, so the small setup cost is accepted.
@@ -106,3 +107,6 @@ def get_trip_repository(
         yield SupabaseTripRepository(client)
     finally:
         client.postgrest.session.close()
+
+
+Trips = Annotated[TripRepository, Depends(get_trip_repository)]

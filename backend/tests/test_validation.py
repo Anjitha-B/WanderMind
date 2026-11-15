@@ -46,11 +46,14 @@ def test_invalid_itinerary_rejected_on_update(client, trip_body, repo, case):
 def test_limits_are_inclusive(client, trip_body):
     itinerary = [day(i, ["x" * 500] * 15) for i in range(1, 31)]
     body = {**trip_body, "itinerary_data": itinerary}
-    assert client.post("/api/v1/trips", json=body, headers=auth_header()).status_code == 201
+    assert (
+        client.post("/api/v1/trips", json=body, headers=auth_header()).status_code
+        == 201
+    )
 
 
 @pytest.mark.parametrize(
-    "field,value",
+    ("field", "value"),
     [
         ("destination", ""),
         ("destination", "   "),
@@ -62,7 +65,7 @@ def test_limits_are_inclusive(client, trip_body):
     ],
 )
 @pytest.mark.parametrize(
-    "path,body_fixture",
+    ("path", "body_fixture"),
     [("/api/v1/trips", "trip_body"), ("/api/v1/itineraries/generate", "generate_body")],
 )
 def test_field_limits(client, request, path, body_fixture, field, value):
@@ -94,7 +97,10 @@ def test_end_before_start_rejected_on_generate(client, generate_body):
 
 def test_trip_over_14_days_rejected_on_create(client, trip_body):
     body = {**trip_body, "start_date": "2027-03-01", "end_date": "2027-03-15"}
-    assert client.post("/api/v1/trips", json=body, headers=auth_header()).status_code == 422
+    assert (
+        client.post("/api/v1/trips", json=body, headers=auth_header()).status_code
+        == 422
+    )
 
 
 def test_validation_errors_do_not_echo_input(client, trip_body):

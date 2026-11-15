@@ -3,6 +3,7 @@
 The local stack signs ES256 tokens like the live project, so the production
 verifier runs unchanged against the stack's own JWKS endpoint.
 """
+
 import random
 import string
 
@@ -50,9 +51,9 @@ def test_full_trip_lifecycle(api, user_a, body):
     assert created.status_code == 201
     trip_id = created.json()["id"]
 
-    assert [t["id"] for t in api.get(TRIPS, headers=bearer(user_a)).json()["trips"]] == [
-        trip_id
-    ]
+    assert [
+        t["id"] for t in api.get(TRIPS, headers=bearer(user_a)).json()["trips"]
+    ] == [trip_id]
 
     updated = api.patch(
         f"{TRIPS}/{trip_id}",
@@ -81,7 +82,8 @@ def test_real_token_is_needed(api):
 
 
 def test_itinerary_within_api_limits_but_over_db_cap_is_422(api, user_a, body):
-    text = "".join(random.choices(string.ascii_letters, k=500))
+    # Filler text, not a secret.
+    text = "".join(random.choices(string.ascii_letters, k=500))  # noqa: S311
     itinerary = [{"day": i, "activities": [text] * 15} for i in range(1, 31)]
     response = api.post(
         TRIPS, json={**body, "itinerary_data": itinerary}, headers=bearer(user_a)

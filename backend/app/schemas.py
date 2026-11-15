@@ -10,12 +10,14 @@ from app.core.config import (
     MAX_INTEREST_LENGTH,
     MAX_INTERESTS,
     MAX_ITINERARY_DAYS,
-    MAX_TRIP_DAYS,
+    get_settings,
 )
 
 Destination = Annotated[
     str,
-    StringConstraints(strip_whitespace=True, min_length=1, max_length=MAX_DESTINATION_LENGTH),
+    StringConstraints(
+        strip_whitespace=True, min_length=1, max_length=MAX_DESTINATION_LENGTH
+    ),
 ]
 Activity = Annotated[str, StringConstraints(max_length=MAX_ACTIVITY_LENGTH)]
 Interest = Annotated[str, StringConstraints(max_length=MAX_INTEREST_LENGTH)]
@@ -45,8 +47,9 @@ class TripDates(StrictModel):
     def check_range(self) -> Self:
         if self.end_date < self.start_date:
             raise ValueError("end_date must be on or after start_date")
-        if self.total_days > MAX_TRIP_DAYS:
-            raise ValueError(f"trip cannot be longer than {MAX_TRIP_DAYS} days")
+        max_days = get_settings().max_trip_days
+        if self.total_days > max_days:
+            raise ValueError(f"trip cannot be longer than {max_days} days")
         return self
 
     @property

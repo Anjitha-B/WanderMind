@@ -1,0 +1,50 @@
+[project]
+name = "wandermind-backend"
+version = "1.0.0"
+description = "WanderMind API: itinerary generation and saved trips"
+requires-python = ">=3.13"
+dependencies = [
+    "fastapi==0.135.1",
+    "uvicorn[standard]==0.41.0",
+    "pydantic==2.12.5",
+    "pydantic-settings==2.14.2",
+    "PyJWT[crypto]==2.15.0",
+    "google-genai==1.66.0",
+    "supabase==2.31.0",
+    "tavily-python==0.8.0",
+    "slowapi==0.1.10",
+]
+
+[dependency-groups]
+dev = [
+    "pytest==9.2.0",
+    "pytest-socket==0.8.1",
+    "httpx==0.28.1",
+    "ruff>=0.17,<0.18",
+    "pip-audit>=2.9",
+    "pre-commit>=4.0",
+]
+
+[tool.uv]
+# An application run from this directory, not an installable package.
+package = false
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = "-m 'not integration and not live' --disable-socket --allow-unix-socket"
+markers = [
+    "integration: needs a local Supabase stack (see README)",
+    "live: calls the real Gemini and Tavily APIs with the keys in backend/.env",
+]
+
+[tool.ruff]
+target-version = "py313"
+line-length = 88
+
+[tool.ruff.lint]
+select = ["E", "W", "F", "I", "B", "UP", "SIM", "C4", "PT", "S", "N", "RUF"]
+
+[tool.ruff.lint.per-file-ignores]
+# pytest assertions are plain `assert` statements.
+"tests/**" = ["S101"]

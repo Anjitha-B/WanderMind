@@ -15,9 +15,9 @@ module.exports = defineConfig({
   use: { baseURL: APP_URL, trace: 'retain-on-failure' },
   webServer: [
     {
-      command: `${process.env.E2E_PYTHON || 'python3'} -m uvicorn e2e_server:app --app-dir ../e2e --port 8100`,
+      command: 'uv run --frozen python -m uvicorn e2e_server:app --app-dir ../e2e --port 8100',
       cwd: '../backend',
-      url: `${API_URL}/docs`,
+      url: `${API_URL}/readyz`,
       reuseExistingServer: false,
       env: {
         WANDERMIND_ENV_FILE: '/dev/null',

@@ -34,7 +34,9 @@ def test_owner_can_update_and_delete(client, trip_body, repo):
 
 def test_b_list_never_contains_a_trips(client, trip_body):
     _create(client, trip_body, USER_A)
-    assert client.get("/api/v1/trips", headers=auth_header(USER_B)).json() == {"trips": []}
+    assert client.get("/api/v1/trips", headers=auth_header(USER_B)).json() == {
+        "trips": []
+    }
 
 
 def test_b_cannot_update_a_trip(client, trip_body, repo):
@@ -72,7 +74,10 @@ def test_malformed_trip_id_is_404(client):
 
 def test_user_id_in_create_body_is_rejected(client, trip_body, repo):
     body = {**trip_body, "user_id": USER_B}
-    assert client.post("/api/v1/trips", json=body, headers=auth_header()).status_code == 422
+    assert (
+        client.post("/api/v1/trips", json=body, headers=auth_header()).status_code
+        == 422
+    )
     assert repo.rows == []
 
 

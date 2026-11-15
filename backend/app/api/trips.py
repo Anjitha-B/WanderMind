@@ -2,12 +2,12 @@ import logging
 from typing import Any
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi import APIRouter, HTTPException, Response, status
 from fastapi.encoders import jsonable_encoder
 
-from app.core.auth import CurrentUser, get_current_user
+from app.core.auth import AuthenticatedUser
 from app.core.logging import hash_user_id
-from app.db.trips import TripConstraintViolation, TripRepository, get_trip_repository
+from app.db.trips import TripConstraintError, Trips
 from app.schemas import TripCreate, TripUpdate
 
 logger = logging.getLogger(__name__)
@@ -32,8 +32,8 @@ def _trip_id(raw: str) -> str:
 
 @router.get("")
 def list_trips(
-    user: CurrentUser = Depends(get_current_user),
-    repo: TripRepository = Depends(get_trip_repository),
+    user: AuthenticatedUser,
+    repo: Trips,
 ) -> dict[str, list[dict[str, Any]]]:
     return {"trips": repo.list_trips(user.id)}
 
@@ -41,12 +41,12 @@ def list_trips(
 @router.post("", status_code=status.HTTP_201_CREATED)
 def create_trip(
     body: TripCreate,
-    user: CurrentUser = Depends(get_current_user),
-    repo: TripRepository = Depends(get_trip_repository),
+    user: AuthenticatedUser,
+    repo: Trips,
 ) -> dict[str, Any]:
     try:
         trip = repo.create_trip(user.id, jsonable_encoder(body))
-    except TripConstraintViolation:
+    except TripConstraintError:
         raise _too_large() from None
     logger.info("trip_created", extra={"user_ref": hash_user_id(user.id)})
     return trip
@@ -56,14 +56,14 @@ def create_trip(
 def update_trip(
     trip_id: str,
     body: TripUpdate,
-    user: CurrentUser = Depends(get_current_user),
-    repo: TripRepository = Depends(get_trip_repository),
+    user: AuthenticatedUser,
+    repo: Trips,
 ) -> dict[str, Any]:
     try:
         trip = repo.update_trip(
             user.id, _trip_id(trip_id), jsonable_encoder(body.itinerary_data)
         )
-    except TripConstraintViolation:
+    except TripConstraintError:
         raise _too_large() from None
     if trip is None:
         raise _not_found()
@@ -74,8 +74,8 @@ def update_trip(
 @router.delete("/{trip_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_trip(
     trip_id: str,
-    user: CurrentUser = Depends(get_current_user),
-    repo: TripRepository = Depends(get_trip_repository),
+    user: AuthenticatedUser,
+    repo: Trips,
 ) -> Response:
     if not repo.delete_trip(user.id, _trip_id(trip_id)):
         raise _not_found()

@@ -1,4 +1,5 @@
 """SupabaseTripRepository against a mocked transport: the real client, no network."""
+
 import json
 
 import httpx
@@ -7,7 +8,7 @@ import pytest
 from app.core.config import get_settings
 from app.db.trips import (
     SupabaseTripRepository,
-    TripConstraintViolation,
+    TripConstraintError,
     build_user_client,
 )
 from tests.conftest import USER_A
@@ -84,5 +85,5 @@ def test_check_violation_becomes_a_typed_error(repository, transport):
         "details": None,
         "hint": None,
     }
-    with pytest.raises(TripConstraintViolation):
+    with pytest.raises(TripConstraintError):
         repository.create_trip(USER_A, {"destination": "x"})

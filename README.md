@@ -39,15 +39,17 @@ sequenceDiagram
 
     U->>API: POST /api/v1/itineraries/generate (Bearer token)
     API->>API: Verify JWT against Supabase JWKS, check rate limit
-    API->>G: Prompt + search_travel_info tool
+    API->>G: Research call: prompt + search_travel_info tool
     loop Up to 3 lookups
         G->>API: Function call: search_travel_info(query)
         API->>T: get_search_context(query)
         T-->>API: Condensed web results
         API-->>G: Search context
     end
+    G-->>API: Draft plan
+    API->>G: Final call: whole conversation + response schema, tools off
     G-->>API: Itinerary JSON
-    API-->>U: Parsed and validated itinerary
+    API-->>U: Validated itinerary
     U->>API: POST /api/v1/trips (Bearer token)
     API->>DB: Insert as the user, so RLS applies
 ```
@@ -65,22 +67,26 @@ Queries also filter on `user_id`, as a second layer on top of RLS. An unknown tr
 
 ### The agentic tool layer (Tavily)
 
-The backend exposes one tool to Gemini, `search_travel_info(query)`, which wraps Tavily's `get_search_context`. It is passed to the Google GenAI SDK as a plain Python function, so the SDK builds the function declaration from the signature and docstring and runs the call loop automatically, up to 3 calls per request. The model decides when to search and what to search for. If it reaches the cap while still asking to search, the backend makes one more Gemini call with tools off, so the itinerary is written from the results so far. The prompt tells it to verify opening hours, venue status, and events for the specific travel dates.
+The backend exposes one tool to Gemini, `search_travel_info(query)`, which wraps Tavily's `get_search_context`. It is passed to the Google GenAI SDK as a plain Python function, so the SDK builds the function declaration from the signature and docstring and runs the call loop automatically, up to 3 calls per request. The model decides when to search and what to search for, and the prompt tells it to verify opening hours, venue status, and events for the specific travel dates.
+
+Generation runs in two phases. In the research phase the model searches and writes a draft plan. The final phase is a separate Gemini call with tools off and a response schema, and it receives the whole research conversation: the searches, their results, and the draft. That keeps the itinerary grounded in what the searches found. If the model reaches the search cap while still asking to search, the final call is written from the results so far.
 
 A few decisions worth calling out:
 
 - **The model chooses the queries.** There is no hardcoded list of lookups. A food trip to Tokyo and a hiking trip to Banff lead to very different searches.
 - **Search failures degrade instead of crashing.** If Tavily errors out, the tool returns a generic message to the model, the details go to the server logs, and generation continues with the model's own knowledge.
 - **`get_search_context` instead of raw search results.** It returns compact, LLM-ready context, which keeps token usage down across multiple tool calls.
-- **Tool calling and strict JSON mode don't mix here**, so the prompt asks for a single JSON object and the backend extracts it from the response text (stripping any markdown fences), parses it, and validates it with Pydantic before returning it.
+- **Structured output, validated.** The final call uses Gemini's JSON mode with a schema generated from the `ItineraryResponse` Pydantic model, and the reply is validated with that same model. Invalid output is retried once, then the API returns a 502. Gemini rejects schemas that carry size bounds (`maxItems`, `maxLength` and similar), so the schema it receives describes structure only; the limits are stated in the prompt and enforced by validation.
+- **Call budget.** A generation makes at most 3 research calls, 1 final call, and 1 retry of the final call, with at most 3 Tavily searches.
 - **User input and search results are treated as data.** Trip details go in a delimited block of the prompt, and the system instruction tells the model not to follow instructions found there or in tool results. This reduces prompt injection risk but cannot rule it out.
 
 ### Architecture notes
 
 - **Separate frontend and backend.** Next.js runs on port 3000 and FastAPI on port 8000. The Gemini and Tavily keys live only on the backend. The browser holds only the Supabase anon key, which is safe to expose when RLS is on.
-- **Validation.** Pydantic validates requests and model output, including limits on days, activities, and text lengths, and a 14-day trip cap on generate and save. Unknown fields are rejected.
+- **Validation.** Pydantic validates requests and model output, including limits on days, activities, and text lengths, and a trip cap on generate and save (14 days by default). Unknown fields are rejected.
 - **Database constraints.** CHECK constraints cap itinerary and profile sizes in Postgres, so the limits on size also apply to writes that skip FastAPI and go straight to PostgREST.
-- **Rate limits.** Generation is limited per user, 5 per minute and 30 per day by default.
+- **Rate limits.** Generation is limited per user, 5 per minute and 30 per day by default. The health endpoints are exempt.
+- **Configuration.** The model name, rate limits, trip cap, search cap, and timeouts are settings with defaults. See `backend/.env.example`.
 - **JSONB storage.** Each trip's multi-day plan is stored in a single `itinerary_data` JSONB column, which fits the nested day and activity structure without extra join tables.
 - **Row Level Security.** RLS policies on `profiles` and `itineraries` limit authenticated users to their own rows, for requests through FastAPI and for the profile page, which talks to Supabase directly.
 - **Database triggers.** A trigger creates a profile row when a user signs up, and another keeps `modified_at` current on profile edits.
@@ -95,8 +101,9 @@ A few decisions worth calling out:
 |---|---|
 | Frontend | Next.js (Pages Router), React, Tailwind CSS v4, react-date-range |
 | Auth and data client | `@supabase/ssr`, `@supabase/supabase-js`, `@supabase/auth-ui-react` |
-| Backend | Python, FastAPI, Pydantic, Uvicorn, PyJWT, slowapi |
-| LLM | Google Gemini via the `google-genai` SDK, with automatic function calling |
+| Backend | Python 3.13, FastAPI, Pydantic, Uvicorn, PyJWT, slowapi |
+| Backend tooling | uv, ruff, pytest, pip-audit, pre-commit with gitleaks |
+| LLM | Google Gemini via the `google-genai` SDK, with automatic function calling and structured output |
 | Live web search | Tavily (`tavily-python`) |
 | Database | Supabase Postgres with JSONB, RLS policies, and PL/pgSQL triggers |
 
@@ -111,8 +118,10 @@ A few decisions worth calling out:
 | POST | `/api/v1/trips` | Save a generated itinerary |
 | PATCH | `/api/v1/trips/{trip_id}` | Update the activities in a saved trip |
 | DELETE | `/api/v1/trips/{trip_id}` | Delete a saved trip |
+| GET | `/healthz` | Liveness: the process is serving requests |
+| GET | `/readyz` | Readiness: the app started with valid settings |
 
-Every endpoint needs an `Authorization: Bearer <access_token>` header. With the backend running, interactive docs are at `http://localhost:8000/docs`.
+Every `/api/v1` endpoint needs an `Authorization: Bearer <access_token>` header. The two health endpoints need no auth, touch no database or external service, and are not rate limited. With the backend running, interactive docs are at `http://localhost:8000/docs`.
 
 ---
 
@@ -121,7 +130,7 @@ Every endpoint needs an `Authorization: Bearer <access_token>` header. With the 
 ### Prerequisites
 
 - Node.js 18+
-- Python 3.10+
+- [uv](https://docs.astral.sh/uv/), which installs Python 3.13 for the backend
 - A free [Supabase](https://supabase.com) project
 - A [Google AI Studio](https://aistudio.google.com) API key
 - A [Tavily](https://tavily.com) API key (the free tier is enough for development)
@@ -143,11 +152,11 @@ Fill in both files. The backend will not start without `GEMINI_API_KEY`, `TAVILY
 
 ```bash
 cd backend
-python -m venv venv
-source venv/bin/activate      # Windows: venv\Scripts\activate
-pip install -r requirements.txt
-uvicorn main:app --reload
+uv sync
+uv run uvicorn main:app --reload
 ```
+
+`uv sync` creates `backend/.venv` from `uv.lock`. Dependencies are declared in `backend/pyproject.toml`.
 
 ### 4. Frontend
 
@@ -167,7 +176,7 @@ Open `http://localhost:3000`.
 
 ```bash
 cd backend
-pytest
+uv run pytest
 ```
 
 These need no network, Docker, or real credentials. Sockets are disabled during the run, and tokens are signed with a test key and checked by the real verifier.
@@ -183,10 +192,19 @@ npx supabase start
 npx supabase db reset
 export SUPABASE_TEST_ANON_KEY=$(npx supabase status -o env | grep '^ANON_KEY=' | cut -d= -f2- | tr -d '"')
 cd backend
-pytest -m integration
+uv run pytest -m integration
 ```
 
 They are skipped by a plain `pytest`.
+
+### Live smoke test
+
+One test generates a 2-day itinerary through the real Gemini and Tavily APIs, using the keys in `backend/.env`, and prints the searches next to the result. It spends real quota, so it only runs when asked for:
+
+```bash
+cd backend
+uv run pytest -m live -s
+```
 
 ### End-to-end tests
 
@@ -198,10 +216,28 @@ With the local stack running and `SUPABASE_TEST_ANON_KEY` exported as above:
 cd e2e
 npm install
 npx playwright install chromium
-E2E_PYTHON=../backend/venv/bin/python npx playwright test
+npx playwright test
 ```
 
-`E2E_PYTHON` is the Python with the backend requirements installed. The run builds the frontend into `frontend/.next` with local settings, so rebuild before using `next start` against your real project.
+The API is started with `uv run`, so run `uv sync` in `backend/` first. The run builds the frontend into `frontend/.next` with local settings, so rebuild before using `next start` against your real project.
+
+---
+
+## Code quality
+
+```bash
+cd backend
+uv run ruff check . ../e2e
+uv run ruff format --check . ../e2e
+uv export --frozen --no-emit-project -o /tmp/requirements.txt && uv run pip-audit -r /tmp/requirements.txt --require-hashes --disable-pip
+```
+
+Pre-commit runs ruff and [gitleaks](https://github.com/gitleaks/gitleaks) on each commit. Install the hook once per clone:
+
+```bash
+cd backend
+uv run pre-commit install
+```
 
 ---
 

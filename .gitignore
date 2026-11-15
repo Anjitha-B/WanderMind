@@ -6,14 +6,16 @@ frontend/.env.local
 # Backend exclusions
 __pycache__/
 .pytest_cache/
+.ruff_cache/
 .venv/
 backend/venv/
 backend/.env
 backend/logs/
 *.log
 
-# OS specific files
+# OS and editor files
 .DS_Store
+.vscode/
 
 # End-to-end tests
 e2e/node_modules/
