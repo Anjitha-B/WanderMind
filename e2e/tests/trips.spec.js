@@ -9,12 +9,12 @@ function newEmail(label) {
   return `e2e-${label}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}@example.com`;
 }
 
-/** Accepts every alert/confirm and records its text. */
+/** Records any alert/confirm. The app reports inline, so none should open. */
 function recordDialogs(page) {
   const messages = [];
   page.on('dialog', async (dialog) => {
     messages.push(dialog.message());
-    await dialog.accept();
+    await dialog.dismiss();
   });
   return messages;
 }
@@ -107,6 +107,26 @@ test('trip lifecycle, logout, and isolation between two accounts', async ({ brow
     await logIn(pageA, emailA);
   });
 
+  await test.step('save the profile, with inline validation and the live column names', async () => {
+    await pageA.goto('/profile');
+    await pageA.getByPlaceholder('First name').fill('J0hn');
+    await pageA.getByPlaceholder('Last name').fill("O'Brien");
+    await pageA.getByRole('button', { name: 'Save Settings' }).click();
+    await expect(pageA.getByRole('alert').filter({ hasText: 'Names can only contain' })).toBeVisible();
+
+    await pageA.getByPlaceholder('First name').fill('Zoë');
+    await pageA.getByRole('button', { name: 'Save Settings' }).click();
+    await expect(pageA.getByRole('status')).toContainText('updated successfully');
+
+    const token = await accessToken(pageA);
+    const response = await pageA.request.get(
+      `${SUPABASE}/rest/v1/profiles?select=firstname,lastname`,
+      { headers: { apikey: ANON_KEY, Authorization: `Bearer ${token}` } },
+    );
+    expect(await response.json()).toEqual([{ firstname: 'Zoë', lastname: "O'Brien" }]);
+    await pageA.goto('/home');
+  });
+
   await test.step('generate an itinerary (mocked Gemini)', async () => {
     await pageA.getByPlaceholder('Destination (e.g., Paris)').fill('Lisbon');
     await pageA.getByPlaceholder('Interests (e.g. culture, food, adventure)').fill('food, trams');
@@ -123,7 +143,7 @@ test('trip lifecycle, logout, and isolation between two accounts', async ({ brow
     const response = await saved;
     expect(response.status()).toBe(201);
     tripId = (await response.json()).id;
-    await expect.poll(() => dialogsA.at(-1)).toContain('saved');
+    await expect(pageA.getByRole('status')).toContainText('saved to your dashboard');
   });
 
   await test.step('edit it, and the edit survives a reload', async () => {
@@ -132,7 +152,7 @@ test('trip lifecycle, logout, and isolation between two accounts', async ({ brow
     await pageA.getByRole('button', { name: /Edit Trip/ }).click();
     await pageA.locator('input[value="Mock activity 1.1"]').fill('Pastéis de Belém');
     await pageA.getByRole('button', { name: /Save Changes/ }).click();
-    await expect.poll(() => dialogsA.at(-1)).toContain('updated successfully');
+    await expect(pageA.getByRole('status')).toContainText('updated successfully');
 
     await pageA.reload();
     await pageA.getByText('📍 Lisbon').click();
@@ -142,7 +162,6 @@ test('trip lifecycle, logout, and isolation between two accounts', async ({ brow
   await test.step('a second account cannot see or change the first account trips', async () => {
     const contextB = await browser.newContext();
     const pageB = await contextB.newPage();
-    recordDialogs(pageB);
     await signUp(pageB, newEmail('b'));
 
     await pageB.goto('/trips');
@@ -174,9 +193,20 @@ test('trip lifecycle, logout, and isolation between two accounts', async ({ brow
   });
 
   await test.step('delete it', async () => {
-    await pageA.getByRole('button', { name: /Delete/ }).click();
-    await expect.poll(() => dialogsA.at(-1)).toContain('removed');
+    // Step one only asks: the trip is still there and nothing was sent.
+    await pageA.getByRole('button', { name: '🗑️ Delete' }).click();
+    await expect(pageA.getByRole('button', { name: 'Confirm delete' })).toBeVisible();
+    await pageA.getByRole('button', { name: 'Cancel' }).click();
+    await expect(pageA.getByRole('button', { name: 'Confirm delete' })).toHaveCount(0);
+    await expect(pageA.getByText('Pastéis de Belém')).toBeVisible();
+    expect(requestsA.filter((request) => request.method === 'DELETE')).toHaveLength(0);
+
+    // Step two deletes.
+    await pageA.getByRole('button', { name: '🗑️ Delete' }).click();
+    await pageA.getByRole('button', { name: 'Confirm delete' }).click();
+    await expect(pageA.getByRole('status')).toContainText('removed');
     await expect(pageA.getByText("You haven't saved any itineraries yet.")).toBeVisible();
+    expect(requestsA.filter((request) => request.method === 'DELETE')).toHaveLength(1);
   });
 
   await test.step('log out, then Back lands on /login', async () => {
@@ -188,6 +218,10 @@ test('trip lifecycle, logout, and isolation between two accounts', async ({ brow
 
     await pageA.goto('/trips');
     await expect(pageA).toHaveURL(/\/login$/);
+  });
+
+  await test.step('no alert or confirm dialog was opened', async () => {
+    expect(dialogsA).toEqual([]);
   });
 
   await test.step('the browser never sent a user_id, and always sent a token', async () => {

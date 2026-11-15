@@ -3,4 +3,4 @@ module.exports = {
     '@tailwindcss/postcss': {}, // Updated to point to the new v4 package
     autoprefixer: {},
   },
-}
+};

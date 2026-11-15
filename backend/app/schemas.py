@@ -1,4 +1,4 @@
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from typing import Annotated, Self
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
@@ -75,3 +75,21 @@ class TripUpdate(StrictModel):
 class ItineraryResponse(StrictModel):
     destination: Destination
     itinerary: ItineraryData
+
+
+class Trip(BaseModel):
+    """A saved trip as the API returns it. Documents the response for OpenAPI and
+    the generated frontend types; rows are returned as stored, not re-validated,
+    so trips saved before the limits existed still load."""
+
+    id: str
+    destination: str
+    start_date: date
+    end_date: date
+    interests: list[str] | None
+    itinerary_data: list[DayPlan]
+    created_at: datetime
+
+
+class TripList(BaseModel):
+    trips: list[Trip]
