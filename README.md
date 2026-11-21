@@ -1,5 +1,7 @@
 # WanderMind
 
+[![CI](https://github.com/Anjitha-B/WanderMind/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Anjitha-B/WanderMind/actions/workflows/ci.yml)
+
 **AI travel itinerary planner with live web grounding**
 
 WanderMind takes a destination, travel dates, and a list of interests and returns a day-by-day itinerary. Before it writes the plan, the model can search the live web through Tavily to check things that go stale quickly, like opening hours, whether a venue is still operating, and events happening on your dates. Signed-in users can save trips, edit them later, and delete them.
@@ -250,6 +252,17 @@ npm run format:check
 npm run check:api
 npm run build
 ```
+
+### Checks
+
+GitHub Actions ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) runs these on every pull request to `main` and every push to `main`. They need no repository secrets and never call the real Gemini, Tavily, or Supabase.
+
+- **backend**: ruff lint and format check, unit tests with sockets disabled, and `pip-audit` on the locked dependencies.
+- **frontend**: typecheck, lint, Prettier check, Vitest, the API types check, `next build`, and `npm audit --omit=dev --audit-level=high`.
+- **secrets**: gitleaks over the full git history.
+- **integration-e2e**: starts a local Supabase stack, then runs `pytest -m integration` and the Playwright suite against the fake Gemini server.
+
+Tests marked `live` never run in CI. Dependabot opens weekly dependency updates, and CodeQL scans Python, JavaScript/TypeScript, and the workflow files.
 
 ### API types
 
