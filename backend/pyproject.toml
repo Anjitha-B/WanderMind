@@ -4,14 +4,14 @@ version = "1.0.0"
 description = "WanderMind API: itinerary generation and saved trips"
 requires-python = ">=3.13"
 dependencies = [
-    "fastapi==0.135.1",
-    "uvicorn[standard]==0.41.0",
-    "pydantic==2.12.5",
-    "pydantic-settings==2.14.2",
+    "fastapi==0.165.0",
+    "uvicorn[standard]==0.54.0",
+    "pydantic==2.14.3",
+    "pydantic-settings==2.16.3",
     "PyJWT[crypto]==2.15.0",
     "google-genai==1.66.0",
     "supabase==2.31.0",
-    "tavily-python==0.8.0",
+    "tavily-python==0.8.5",
     "slowapi==0.1.10",
 ]
 
