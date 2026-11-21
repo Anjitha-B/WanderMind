@@ -16,6 +16,11 @@ updates:
     schedule:
       interval: weekly
     groups:
+      # React and its types move together at every level, majors included.
+      # Listed first: Dependabot puts each dependency in the first group it matches.
+      react:
+        patterns: [react, react-dom, "@types/react", "@types/react-dom"]
+        update-types: [major, minor, patch]
       frontend-minor-patch:
         update-types: [minor, patch]
 
