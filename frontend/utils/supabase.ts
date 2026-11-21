@@ -8,5 +8,3 @@ if (!supabaseUrl || !supabaseAnonKey) {
 }
 
 export const supabase = createBrowserClient(supabaseUrl, supabaseAnonKey);
-
-const ciLintProbe = 1;
