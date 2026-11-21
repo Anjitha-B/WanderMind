@@ -9,7 +9,7 @@ dependencies = [
     "pydantic==2.12.5",
     "pydantic-settings==2.14.2",
     "PyJWT[crypto]==2.15.0",
-    "google-genai==1.66.0",
+    "google-genai==3.5.0",
     "supabase==2.31.0",
     "tavily-python==0.8.0",
     "slowapi==0.1.10",
