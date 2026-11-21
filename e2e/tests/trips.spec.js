@@ -35,18 +35,22 @@ function recordApiRequests(page) {
   return requests;
 }
 
-/** The signed-in user's access token, read from the Supabase session storage. */
-async function accessToken(page) {
-  return page.evaluate(() => {
-    const key = Object.keys(localStorage).find((k) => k.endsWith('-auth-token'));
-    const cookie = document.cookie
-      .split('; ')
-      .filter((c) => c.includes('-auth-token'))
-      .map((c) => c.split('=').slice(1).join('='));
-    const raw = key ? localStorage.getItem(key) : decodeURIComponent(cookie.join(''));
-    const json = raw.startsWith('base64-') ? atob(raw.slice(7)) : raw;
-    return JSON.parse(json).access_token;
-  });
+/**
+ * Runs a sign-up or sign-in and returns the access token from the Supabase Auth
+ * response the browser received. That is the browser's own session, read without
+ * depending on how @supabase/ssr stores it (cookie names and encoding change
+ * between releases).
+ */
+async function sessionFrom(page, authPath, submit) {
+  const authResponse = page.waitForResponse(
+    (r) => r.url().startsWith(`${SUPABASE}${authPath}`) && r.request().method() === 'POST',
+  );
+  await submit();
+  const response = await authResponse;
+  expect(response.status()).toBe(200);
+  const { access_token: token } = await response.json();
+  expect(token).toMatch(/^ey/);
+  return token;
 }
 
 /** A Date as the YYYY-MM-DD calendar day in the local timezone, as the app sends it. */
@@ -59,21 +63,29 @@ function subjectOf(token) {
   return JSON.parse(Buffer.from(token.split('.')[1], 'base64url').toString()).sub;
 }
 
+/** Signs up through the UI and returns the new session's access token. */
 async function signUp(page, email) {
   await page.goto('/login');
   await page.getByRole('link', { name: /sign up/i }).click();
   await page.locator('input[name="email"]').fill(email);
   await page.locator('input[name="password"]').fill(PASSWORD);
-  await page.getByRole('button', { name: 'Sign up', exact: true }).click();
+  const token = await sessionFrom(page, '/auth/v1/signup', () =>
+    page.getByRole('button', { name: 'Sign up', exact: true }).click(),
+  );
   await expect(page).toHaveURL(/\/home$/);
+  return token;
 }
 
+/** Signs in through the UI and returns the new session's access token. */
 async function logIn(page, email) {
   await page.goto('/login');
   await page.locator('input[name="email"]').fill(email);
   await page.locator('input[name="password"]').fill(PASSWORD);
-  await page.getByRole('button', { name: 'Sign in', exact: true }).click();
+  const token = await sessionFrom(page, '/auth/v1/token', () =>
+    page.getByRole('button', { name: 'Sign in', exact: true }).click(),
+  );
   await expect(page).toHaveURL(/\/home$/);
+  return token;
 }
 
 async function logOut(page) {
@@ -88,12 +100,12 @@ test('trip lifecycle, logout, and isolation between two accounts', async ({ brow
   const pageA = await contextA.newPage();
   const dialogsA = recordDialogs(pageA);
   const requestsA = recordApiRequests(pageA);
+  let tokenA;
 
   await test.step('sign up, log out, and log back in', async () => {
-    await signUp(pageA, emailA);
+    const token = await signUp(pageA, emailA);
 
     // The signup trigger (handle_new_user, with an empty search_path) made a profile.
-    const token = await accessToken(pageA);
     const response = await pageA.request.get(
       `${SUPABASE}/rest/v1/profiles?select=id,firstname,lastname,home_country,preferred_currency`,
       { headers: { apikey: ANON_KEY, Authorization: `Bearer ${token}` } },
@@ -110,7 +122,7 @@ test('trip lifecycle, logout, and isolation between two accounts', async ({ brow
     ]);
 
     await logOut(pageA);
-    await logIn(pageA, emailA);
+    tokenA = await logIn(pageA, emailA);
   });
 
   await test.step('save the profile, with inline validation and the live column names', async () => {
@@ -124,10 +136,9 @@ test('trip lifecycle, logout, and isolation between two accounts', async ({ brow
     await pageA.getByRole('button', { name: 'Save Settings' }).click();
     await expect(pageA.getByRole('status')).toContainText('updated successfully');
 
-    const token = await accessToken(pageA);
     const response = await pageA.request.get(
       `${SUPABASE}/rest/v1/profiles?select=firstname,lastname`,
-      { headers: { apikey: ANON_KEY, Authorization: `Bearer ${token}` } },
+      { headers: { apikey: ANON_KEY, Authorization: `Bearer ${tokenA}` } },
     );
     expect(await response.json()).toEqual([{ firstname: 'Zoë', lastname: "O'Brien" }]);
     await pageA.goto('/home');
@@ -204,14 +215,13 @@ test('trip lifecycle, logout, and isolation between two accounts', async ({ brow
   await test.step('a second account cannot see or change the first account trips', async () => {
     const contextB = await browser.newContext();
     const pageB = await contextB.newPage();
-    await signUp(pageB, newEmail('b'));
+    const tokenB = await signUp(pageB, newEmail('b'));
 
     await pageB.goto('/trips');
     await expect(pageB.getByText("You haven't saved any itineraries yet.")).toBeVisible();
     await expect(pageB.getByText('📍 Lisbon')).toHaveCount(0);
 
     // Straight to the API with B's own token and A's trip id.
-    const tokenB = await accessToken(pageB);
     const statuses = await pageB.evaluate(
       async ({ api, id, token }) => {
         const headers = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
