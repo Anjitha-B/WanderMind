@@ -132,7 +132,7 @@ Every `/api/v1` endpoint needs an `Authorization: Bearer <access_token>` header.
 
 ### Prerequisites
 
-- Node.js 20.9+
+- Node.js 24 (see `.nvmrc`) and npm 11.19.1. `frontend/package.json` pins both in `devEngines`, so `npm ci` stops with `EBADDEVENGINES` on any other npm. To get that npm without sudo, use a user-owned prefix: `npm config set prefix ~/.npm-global`, `npm install -g npm@11.19.1`, then put `~/.npm-global/bin` first on your `PATH`.
 - [uv](https://docs.astral.sh/uv/), which installs Python 3.13 for the backend
 - A free [Supabase](https://supabase.com) project
 - A [Google AI Studio](https://aistudio.google.com) API key
