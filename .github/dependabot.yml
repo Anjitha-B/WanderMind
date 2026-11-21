@@ -23,6 +23,11 @@ updates:
         update-types: [major, minor, patch]
       frontend-minor-patch:
         update-types: [minor, patch]
+    ignore:
+      # @types/node tracks the Node runtime major (24, see .nvmrc). Bump it
+      # by hand when the runtime moves to a new major.
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: npm
     directory: /e2e
