@@ -8,7 +8,7 @@ from app.schemas import GenerateRequest
 def test_probe_is_ok_without_auth(client, repo, path):
     response = client.get(path)
     assert response.status_code == 200
-    assert response.json() == {"status": "ok"}
+    assert response.json() == {"status": "deliberately-broken"}
     assert repo.rows == []
 
 
